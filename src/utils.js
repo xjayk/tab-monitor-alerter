@@ -17,6 +17,7 @@
  * @returns {boolean} true if the alert should be suppressed (debounced)
  */
 export function shouldDebounce(lastAlertTime, tabId, now, debounceMs) {
+  if (!lastAlertTime) return false;
   const last = lastAlertTime[tabId];
   if (last === undefined) return false;
   return (now - last) < debounceMs;
