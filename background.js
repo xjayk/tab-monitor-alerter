@@ -21,14 +21,14 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 // 1. Listen for Title Updates
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.title && monitoredTabs.has(tabId)) {
     triggerAlert(tabId);
   }
 });
 
 // 2. Listen for Web Notification intercepts and Popup Actions
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender) => {
   if (message.type === 'TRIGGER_ALERT' && sender.tab && monitoredTabs.has(sender.tab.id)) {
     triggerAlert(sender.tab.id);
   } else if (message.type === 'CLEAR_ALERT') {

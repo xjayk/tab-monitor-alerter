@@ -1,0 +1,19 @@
+{
+  "name": "tab-monitor-alerter",
+  "version": "1.0.0",
+  "description": "Chrome extension that monitors tabs for title changes and web notifications, then alerts the user.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0",
+    "vitest": "^4.1.8"
+  }
+}
