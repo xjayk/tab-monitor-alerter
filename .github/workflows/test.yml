@@ -1,13 +1,9 @@
 name: CI
 
 on:
-  # Run on trunk after every merge or direct push.
-  # This provides a canonical post-merge green signal for the trunk branch.
   push:
     branches:
       - trunk
-    # Skip CI when only doc/asset files changed — they cannot affect
-    # lint or test outcomes.
     paths-ignore:
       - '**/*.md'
       - '*.html'
@@ -18,42 +14,26 @@ on:
   # - opened / synchronize / reopened: standard PR lifecycle events
   # - ready_for_review: fires when a draft is converted to ready — this
   #   ensures CI triggers the moment a PR leaves draft state.
-  # Draft pushes are intentionally excluded to avoid wasting runner
-  # minutes on work-in-progress branches.
   pull_request:
     branches: ['**']
     types: [opened, synchronize, reopened, ready_for_review]
-    # Same exclusions as push — doc/asset-only PRs skip CI.
     paths-ignore:
       - '**/*.md'
       - '*.html'
       - '.gitignore'
       - '.gitattributes'
 
-# ---------------------------------------------------------------------------
-# Concurrency: cancel superseded runs on the same PR or branch.
-#
-# For pull_request: each PR gets its own group (by PR number). A new push
-# cancels any in-progress run for that PR — only the latest commit matters.
-#
-# For push to trunk: scoped to the branch name. cancel-in-progress is false
-# so a post-merge trunk validation is never silently dropped — runs queue
-# instead (fast merges to trunk are rare in practice).
-# ---------------------------------------------------------------------------
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Job 1: ESLint — runs in parallel with unit-tests
+  # Job 1: ESLint
   # ---------------------------------------------------------------------------
   lint:
     name: ESLint
     runs-on: ubuntu-latest
-    # Extra guard: skip if the PR is still in draft state.
-    # This catches edge cases where GitHub delivers the event before the
-    # draft flag is reflected in the types filter.
     if: github.event.pull_request.draft == false || github.event_name == 'push'
     steps:
       - name: Checkout repository
@@ -93,3 +73,43 @@ jobs:
 
       - name: Run unit tests
         run: npm test
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Playwright integration tests (Chrome Extension)
+  #
+  # Extensions require headed Chromium — --headless=new has inconsistent
+  # extension/SW support on Linux CI runners. Instead we use xvfb-run to
+  # provide a virtual X display so headed Chromium can launch without a
+  # physical monitor.
+  #
+  # xvfb-run args:
+  #   -a  auto-select an available display number (avoids conflicts)
+  #   -s "-screen 0 1280x720x24"  set a real resolution/depth so Chrome
+  #      does not fall back to a software renderer
+  # ---------------------------------------------------------------------------
+  integration-tests:
+    name: Integration Tests (Playwright)
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests]
+    if: github.event.pull_request.draft == false || github.event_name == 'push'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Install Xvfb
+        run: sudo apt-get install -y xvfb
+
+      - name: Run integration tests
+        run: xvfb-run -a -s "-screen 0 1280x720x24" npm run test:integration
