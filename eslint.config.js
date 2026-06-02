@@ -43,10 +43,10 @@ export default [
   },
 
   // -------------------------------------------------------------------------
-  // Test files: run in Node.js via Vitest, no browser globals needed
+  // Unit test files: run in Node.js via Vitest, no browser globals needed
   // -------------------------------------------------------------------------
   {
-    files: ['tests/**/*.js', 'tests/**/*.test.js'],
+    files: ['tests/*.js', 'tests/*.test.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
@@ -57,13 +57,40 @@ export default [
     rules: {
       'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       'no-undef': 'error',
-      // Allow console in tests for debugging
       'no-console': 'off',
     },
   },
 
   // -------------------------------------------------------------------------
-  // Config files (this file, vitest config if added later)
+  // Integration test files: run in Node.js via Playwright.
+  //
+  // Need Node globals (process, URL, etc.) — NOT browser globals.
+  //
+  // `chrome` is declared here because evaluate() callbacks are serialised
+  // and executed inside the extension service worker where `chrome` is
+  // available. ESLint analyses them in Node scope, so we declare it to
+  // prevent false no-undef errors without per-line disable comments.
+  // -------------------------------------------------------------------------
+  {
+    files: ['tests/integration/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+        // Declared for evaluate() callbacks that run inside the extension SW
+        chrome: 'readonly',
+      },
+    },
+    rules: {
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      'no-undef': 'error',
+      'no-console': 'off',
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // Config files (this file, vitest.config.js, playwright.config.js)
   // -------------------------------------------------------------------------
   {
     files: ['*.config.js', '.eslintrc.*'],
@@ -80,6 +107,6 @@ export default [
   // Ignore build artifacts and dependencies
   // -------------------------------------------------------------------------
   {
-    ignores: ['node_modules/**', 'dist/**', 'coverage/**'],
+    ignores: ['node_modules/**', 'dist/**', 'coverage/**', 'playwright-report/**', 'test-results/**'],
   },
 ];
