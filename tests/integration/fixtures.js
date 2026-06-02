@@ -59,7 +59,7 @@ export const test = base.extend({
   getStorage: async ({ serviceWorker }, use) => {
     const get = (keys) =>
       serviceWorker.evaluate(
-        // eslint-disable-next-line no-undef
+         
         (k) => chrome.storage.local.get(k),
         keys
       );
@@ -75,7 +75,7 @@ export const test = base.extend({
    */
   clearStorage: async ({ serviceWorker }, use) => {
     await use(() =>
-      // eslint-disable-next-line no-undef
+       
       serviceWorker.evaluate(() => chrome.storage.local.clear())
     );
   },
