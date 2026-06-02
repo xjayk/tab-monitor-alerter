@@ -21,19 +21,15 @@
   // 2. DOM MutationObserver — Custom DOM-based alert triggers
   //
   // Some apps render actionable prompts as custom DOM components rather than
-  // native window.Notification calls (e.g. Perplexity action banners, Slack
-  // huddle prompts, Notion permission modals). This observer watches for those.
+  // native window.Notification calls. This observer watches for those.
   //
-  // Configuration:
-  //   Selectors are stored per-tab in chrome.storage.local:
-  //   monitoredTabs[tabId].domTriggers = ['CSS selector 1', 'CSS selector 2']
+  // Configuration flow (MAIN world cannot access chrome.storage directly):
+  //   1. MAIN world sends DOM_OBSERVER_READY
+  //   2. ISOLATED world reads chrome.storage.local and replies SET_DOM_TRIGGERS
+  //   3. MAIN world receives selectors and starts the observer
   //
-  //   Example for Perplexity:
-  //   domTriggers: ['[data-testid="action-banner"]', '.agent-action-required']
-  //
-  // The observer fires the same TAB_ALERTER_NOTIFICATION postMessage as the
-  // Notification proxy above, routing through the existing relay chain with
-  // no changes to content-isolated.js or background.js.
+  // Selector storage shape:
+  //   monitoredTabs[tabId].domTriggers = ['selector1', 'selector2']
   // ---------------------------------------------------------------------------
 
   // Track already-alerted nodes to prevent duplicate alerts for the same element
@@ -42,45 +38,37 @@
   let observer = null;
 
   /**
-   * Test a single DOM node against the configured selectors.
-   * If it matches any selector and hasn’t already triggered an alert,
-   * fire TAB_ALERTER_NOTIFICATION.
+   * Test a single DOM node against pre-validated selectors.
+   * No try-catch here — selectors are guaranteed valid by initDomObserver.
+   * Keeping this path clean allows JS engines to optimise the hot callback.
    *
    * @param {Element} node
-   * @param {string[]} selectors
+   * @param {string[]} selectors - Pre-validated CSS selector strings
    */
   function checkNode(node, selectors) {
     if (!(node instanceof Element)) return;
     if (alertedNodes.has(node)) return;
 
     for (const selector of selectors) {
-      try {
-        if (node.matches(selector) || node.querySelector(selector)) {
-          alertedNodes.add(node);
-          window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, '*');
-          // Only fire once per mutation batch — background debounce handles
-          // rapid DOM churn, but we short-circuit here for efficiency
-          return;
-        }
-      } catch (e) {
-        // Invalid CSS selector — skip silently
-        // (matches() throws on malformed selectors)
-        console.warn('[tab-monitor] Invalid domTrigger selector, skipping:', selector, e);
+      if (node.matches(selector) || node.querySelector(selector)) {
+        alertedNodes.add(node);
+        window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, '*');
+        // Short-circuit: background debounce handles rapid DOM churn
+        return;
       }
     }
   }
 
   /**
    * Start observing document.body for DOM mutations.
-   * Called once domTriggers have been loaded from storage.
    *
-   * @param {string[]} selectors - CSS selectors to watch for
+   * @param {string[]} selectors - Pre-validated CSS selector strings
    */
   function startObserver(selectors) {
     if (!selectors || selectors.length === 0) return;
     if (!document.body) return;
     if (observer) {
-      // Already running (e.g. storage updated) — disconnect and restart
+      // Already running (e.g. selectors updated) — restart cleanly
       observer.disconnect();
     }
 
@@ -99,36 +87,41 @@
   }
 
   /**
-   * Load domTriggers from storage for the current tab and start the observer.
-   * Uses chrome.storage.local so the ISOLATED world doesn’t need to be
-   * involved — MAIN world scripts have access to chrome.storage in MV3.
+   * Initialise the DOM observer.
    *
-   * Storage shape expected:
-   *   monitoredTabs: {
-   *     "<tabId>": {
-   *       pattern: "",
-   *       domTriggers: ["selector1", "selector2"]   // optional
-   *     }
-   *   }
+   * Because MAIN world content scripts cannot access chrome.storage, we use
+   * a postMessage handshake with the ISOLATED world script:
+   *   MAIN  →  DOM_OBSERVER_READY  →  ISOLATED
+   *   MAIN  ←  SET_DOM_TRIGGERS   ←  ISOLATED (reads storage and replies)
    */
   function initDomObserver() {
-    // chrome.tabs.getCurrent is not available in MAIN world content scripts.
-    // We use chrome.storage.local.get with the full monitoredTabs map and
-    // match by inspecting which entry has domTriggers configured.
-    // The background script is responsible for scoping domTriggers to the
-    // correct tab — the content script simply reads the storage key injected
-    // for this tab via chrome.storage.session or a dedicated key.
-    //
-    // Simpler approach used here: background.js injects a page-scoped key
-    // `tabDomTriggers` into chrome.storage.session for this tab’s context.
-    // Fall back to empty if not present.
-    chrome.storage.local.get(['tabDomTriggers'], (result) => {
-      if (chrome.runtime.lastError) return;
-      const selectors = result.tabDomTriggers;
-      if (Array.isArray(selectors) && selectors.length > 0) {
-        startObserver(selectors);
+    // Listen for the storage reply from the ISOLATED world
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) return;
+      if (!event.data || event.data.type !== 'SET_DOM_TRIGGERS') return;
+
+      const selectors = event.data.selectors;
+      if (!Array.isArray(selectors) || selectors.length === 0) return;
+
+      // Pre-validate selectors here so checkNode hot path needs no try-catch
+      const validSelectors = selectors.filter((selector) => {
+        if (typeof selector !== 'string' || selector.trim() === '') return false;
+        try {
+          document.querySelector(selector);
+          return true;
+        } catch {
+          console.warn('[tab-monitor] Invalid domTrigger selector, skipping:', selector);
+          return false;
+        }
+      });
+
+      if (validSelectors.length > 0) {
+        startObserver(validSelectors);
       }
     });
+
+    // Signal to the ISOLATED world that we are ready to receive triggers
+    window.postMessage({ type: 'DOM_OBSERVER_READY' }, '*');
   }
 
   // Wait for DOM to be ready before starting the observer to avoid catching
@@ -136,11 +129,10 @@
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initDomObserver, { once: true });
   } else {
-    // Document already parsed (script injected late or page is interactive)
     initDomObserver();
   }
 
-  // Clean up observer on page unload to prevent memory leaks
+  // Disconnect observer on page unload to prevent memory leaks
   window.addEventListener('beforeunload', () => {
     if (observer) {
       observer.disconnect();
