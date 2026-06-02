@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tab Monitor — Manual Test Page</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.3rem; margin-bottom: 0.25rem; }
+    .subtitle { color: #666; font-size: 0.875rem; margin-bottom: 2rem; }
+    section { margin-bottom: 2rem; }
+    h2 { font-size: 1rem; border-bottom: 1px solid #ddd; padding-bottom: 0.25rem; }
+    button {
+      display: inline-block; margin: 0.25rem 0.25rem 0 0;
+      padding: 0.45rem 0.9rem; border: 1px solid #999;
+      border-radius: 4px; cursor: pointer; font-size: 0.875rem;
+      background: #f5f5f5;
+    }
+    button:hover { background: #e8e8e8; }
+    #log {
+      margin-top: 1rem; padding: 0.75rem; background: #fafafa;
+      border: 1px solid #ddd; border-radius: 4px;
+      font-family: monospace; font-size: 0.8rem;
+      min-height: 60px; max-height: 200px; overflow-y: auto;
+    }
+    .ok   { color: #1a7f37; }
+    .warn { color: #9a6700; }
+    #container { margin-top: 0.75rem; }
+  </style>
+</head>
+<body>
+
+  <h1>Tab Monitor &amp; Alerter — Manual Test Page</h1>
+  <p class="subtitle">
+    Load this page in a monitored tab to verify each alert trigger path.<br>
+    Open the extension popup and enable monitoring for this tab before testing.
+  </p>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Path 1: window.Notification() proxy                                 -->
+  <!-- content-main.js wraps window.Notification; firing one should alert. -->
+  <!-- ------------------------------------------------------------------ -->
+  <section>
+    <h2>Path 1 — Notification API proxy</h2>
+    <p>Fires <code>new window.Notification()</code>. The extension intercepts
+    this in the MAIN world and sends <code>TAB_ALERTER_NOTIFICATION</code>.</p>
+    <button onclick="fireNotification()">Fire window.Notification()</button>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Path 2: childList DOM mutation (addedNodes)                         -->
+  <!-- Injects a node matching the DEFAULT_DOM_TRIGGERS selector.          -->
+  <!-- This SHOULD trigger an alert with the current observer config.      -->
+  <!-- ------------------------------------------------------------------ -->
+  <section>
+    <h2>Path 2 — DOM mutation: new node (childList)</h2>
+    <p>Appends a <code>&lt;button aria-label="Approve"&gt;</code> — the selector
+    in <code>DEFAULT_DOM_TRIGGERS</code> for perplexity.ai.<br>
+    <strong>Expected:</strong> alert fires. If it doesn&rsquo;t, the
+    handshake or selector is broken.</p>
+    <button onclick="injectMatchingNode()">Inject matching node</button>
+    <button onclick="removeInjected()">Remove injected node</button>
+    <div id="container"></div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Path 3: attribute mutation on existing node                         -->
+  <!-- Sets aria-label="Approve" on an already-present element.            -->
+  <!-- This currently DOES NOT trigger — attributes:true is not set.       -->
+  <!-- ------------------------------------------------------------------ -->
+  <section>
+    <h2>Path 3 — DOM mutation: attribute change (known gap ⚠️)</h2>
+    <p>Creates a button then sets <code>aria-label="Approve"</code> on it.
+    The MutationObserver only watches <code>addedNodes</code>, so this
+    <strong>should NOT alert</strong> until <code>attributes: true</code>
+    is added to the observer config.</p>
+    <button onclick="mutateAttribute()">Mutate aria-label on existing node</button>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- Path 4: tab title change                                            -->
+  <!-- Changes document.title — triggers chrome.tabs.onUpdated in SW.     -->
+  <!-- ------------------------------------------------------------------ -->
+  <section>
+    <h2>Path 4 — Title change (background SW)</h2>
+    <p>Modifies <code>document.title</code>. The background SW listens to
+    <code>chrome.tabs.onUpdated</code> for title changes.</p>
+    <button onclick="changeTitle()">Change tab title</button>
+    <button onclick="resetTitle()">Reset title</button>
+  </section>
+
+  <!-- Log -->
+  <section>
+    <h2>Event log</h2>
+    <div id="log">Waiting for actions&hellip;</div>
+  </section>
+
+  <script>
+    const originalTitle = document.title;
+    let injectedNode = null;
+    let mutatingNode = null;
+
+    function log(msg, level = 'ok') {
+      const el = document.getElementById('log');
+      const line = document.createElement('div');
+      line.className = level;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      el.prepend(line);
+    }
+
+    // Path 1
+    function fireNotification() {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().then(p => {
+          log(`Notification permission: ${p}`, p === 'granted' ? 'ok' : 'warn');
+          if (p === 'granted') doFireNotification();
+        });
+      } else {
+        doFireNotification();
+      }
+    }
+
+    function doFireNotification() {
+      new Notification('Tab Monitor test', { body: 'Notification API fired — extension should alert' });
+      log('window.Notification() called');
+    }
+
+    // Path 2
+    function injectMatchingNode() {
+      if (injectedNode) {
+        log('Node already injected — remove it first', 'warn');
+        return;
+      }
+      injectedNode = document.createElement('button');
+      injectedNode.setAttribute('aria-label', 'Approve');
+      injectedNode.textContent = 'Injected: aria-label="Approve"';
+      document.getElementById('container').appendChild(injectedNode);
+      log('Injected <button aria-label="Approve"> into DOM');
+    }
+
+    function removeInjected() {
+      if (!injectedNode) { log('Nothing injected yet', 'warn'); return; }
+      injectedNode.remove();
+      injectedNode = null;
+      log('Removed injected node — can inject again');
+    }
+
+    // Path 3
+    function mutateAttribute() {
+      if (!mutatingNode) {
+        mutatingNode = document.createElement('button');
+        mutatingNode.textContent = 'Attribute-mutating button';
+        document.getElementById('container').appendChild(mutatingNode);
+        log('Created base node (no aria-label yet)');
+      }
+      mutatingNode.setAttribute('aria-label', 'Approve');
+      log('Set aria-label="Approve" on existing node (expect NO alert with current config)', 'warn');
+    }
+
+    // Path 4
+    let titleCounter = 1;
+    function changeTitle() {
+      document.title = `(${titleCounter++}) Tab Monitor Test — updated`;
+      log(`Title changed to: "${document.title}"`);
+    }
+
+    function resetTitle() {
+      document.title = originalTitle;
+      log('Title reset');
+    }
+  </script>
+
+</body>
+</html>

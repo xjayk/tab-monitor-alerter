@@ -52,3 +52,28 @@ A Manifest V3 Chrome Extension that provides persistent visual and audio alerts 
 - `scripting`: Required to inject content scripts.
 - `offscreen`: Required to create the hidden DOM for audio playback.
 - `host_permissions` (`<all_urls>`): Allows the extension to monitor tabs across any domain.
+
+## Manual Testing
+
+A self-contained test page is provided at `tests/manual/test-notify.html`. It exercises all alert trigger paths without needing a real third-party site.
+
+### Setup
+1. Install the extension in dev mode (see above).
+2. Open `tests/manual/test-notify.html` in Chrome. You can do this two ways:
+   - **Direct file:** `File → Open File` in Chrome and navigate to the file. Note that `file://` URLs require `Allow access to file URLs` to be enabled on the extension's detail page at `chrome://extensions/`.
+   - **Local server (recommended):** Run `npx serve .` from the repo root and open `http://localhost:3000/tests/manual/test-notify.html`.
+3. Click the extension icon and **enable monitoring for this tab**.
+
+### Test paths
+
+| # | Button | Trigger path | Expected result |
+|---|---|---|---|
+| 1 | Fire window.Notification() | `window.Notification()` proxy in `content-main.js` | Badge flashes, beep plays |
+| 2 | Inject matching node | `addedNodes` MutationObserver, `aria-label="Approve"` | Badge flashes, beep plays |
+| 3 | Mutate aria-label on existing node | Attribute mutation — **known gap** | No alert (documents missing `attributes: true` in observer) |
+| 4 | Change tab title | `chrome.tabs.onUpdated` in `background.js` | Badge flashes, beep plays |
+
+### Troubleshooting
+- **Path 1 doesn't alert:** Check that Notification permission was granted (browser will prompt). Also open DevTools on the tab and verify `content-main.js` is injected (`Sources → Content scripts`).
+- **Path 2 doesn't alert:** The `SET_DOM_TRIGGERS` handshake may have been missed. Reload the tab *after* the extension is loaded, then re-enable monitoring.
+- **Nothing alerts at all:** Confirm the tab is checked in the popup. Open `chrome://extensions/` → inspect the extension's service worker → check the console for errors.
