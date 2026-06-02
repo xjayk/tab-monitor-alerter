@@ -46,7 +46,19 @@ document.addEventListener('DOMContentLoaded', () => {
           } else {
             monitoredTabs.delete(tab.id);
           }
-          chrome.runtime.sendMessage({ type: e.target.checked ? 'MONITOR_TAB' : 'UNMONITOR_TAB', tabId: tab.id });
+
+          // Write directly to storage — source of truth per AGENT.md.
+          // The background SW syncs its in-memory set via storage.onChanged;
+          // this avoids the MV3 race where a MONITOR_TAB message is silently
+          // dropped if the SW is not yet alive.
+          chrome.storage.local.set(
+            { monitoredTabs: Array.from(monitoredTabs) },
+            () => {
+              if (chrome.runtime.lastError) {
+                console.error('Failed to persist monitoredTabs:', chrome.runtime.lastError);
+              }
+            }
+          );
         });
 
         item.appendChild(title);
