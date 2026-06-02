@@ -1,9 +1,27 @@
-// A short base64 beep. Replace the data URI string with your desired audio file.
-const BEEP_AUDIO = 'data:audio/mp3;base64,//NExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq';
+let audioCtx = null;
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'PLAY_AUDIO') {
-    const audio = new Audio(BEEP_AUDIO);
-    audio.play().catch((e) => console.error('Audio playback failed:', e));
+    playBeep();
   }
 });
+
+function playBeep() {
+  try {
+    if (!audioCtx) {
+      audioCtx = new AudioContext();
+    }
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    osc.start(now);
+    osc.stop(now + 0.4);
+  } catch (e) {
+    console.error('Audio playback failed:', e);
+  }
+}

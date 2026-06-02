@@ -1,10 +1,43 @@
 name: CI
 
 on:
+  # Run on trunk after every merge or direct push.
+  # This provides a canonical post-merge green signal for the trunk branch.
   push:
-    branches: ['**']
+    branches:
+      - trunk
+    # Skip CI when only doc/asset files changed — they cannot affect
+    # lint or test outcomes.
+    paths-ignore:
+      - '**/*.md'
+      - '*.html'
+      - '.gitignore'
+      - '.gitattributes'
+
+  # Run on all PRs against the simulated merge commit (branch + base).
+  # This is the primary pre-merge validation signal.
   pull_request:
     branches: ['**']
+    # Same exclusions as push — doc/asset-only PRs skip CI.
+    paths-ignore:
+      - '**/*.md'
+      - '*.html'
+      - '.gitignore'
+      - '.gitattributes'
+
+# ---------------------------------------------------------------------------
+# Concurrency: cancel superseded runs on the same PR or branch.
+#
+# For pull_request: each PR gets its own group (by PR number). A new push
+# cancels any in-progress run for that PR — only the latest commit matters.
+#
+# For push to trunk: scoped to the branch name. cancel-in-progress is false
+# so a post-merge trunk validation is never silently dropped — runs queue
+# instead (fast merges to trunk are rare in practice).
+# ---------------------------------------------------------------------------
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ---------------------------------------------------------------------------
