@@ -1,8 +1,14 @@
 name: CI
 
 on:
+  # Run on trunk after every merge or direct push.
+  # This provides a canonical post-merge green signal for the trunk branch.
   push:
-    branches: ['**']
+    branches:
+      - trunk
+
+  # Run on all PRs against the simulated merge commit (branch + base).
+  # This is the primary pre-merge validation signal.
   pull_request:
     branches: ['**']
 
