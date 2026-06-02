@@ -14,10 +14,51 @@ if (res.monitoredTabs) {
   monitoredTabs = new Set(res.monitoredTabs);
 }
 
+// ---------------------------------------------------------------------------
+// Default DOM trigger selectors per hostname.
+// When a tab on a known host is added to monitoredTabs, these selectors are
+// automatically written to tabDomTriggers so the MutationObserver in
+// content-main.js activates without any manual user configuration.
+//
+// Selector confirmed via live MutationObserver log (issue #11).
+// ---------------------------------------------------------------------------
+const DEFAULT_DOM_TRIGGERS = {
+  'www.perplexity.ai': ['button[aria-label="Approve"]'],
+};
+
+/**
+ * If the tab's URL matches a known host in DEFAULT_DOM_TRIGGERS,
+ * write those selectors to storage so content-main.js picks them up.
+ * Safe to call on every tab registration — no-op for unknown hosts.
+ *
+ * @param {number} tabId
+ */
+function maybeInjectDomTriggers(tabId) {
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab.url) return;
+    try {
+      const host = new URL(tab.url).hostname;
+      const selectors = DEFAULT_DOM_TRIGGERS[host];
+      if (selectors) {
+        chrome.storage.local.set({ tabDomTriggers: selectors });
+      }
+    } catch {
+      // Unparseable URL (e.g. chrome:// pages) — ignore
+    }
+  });
+}
+
 // Update memory when popup changes storage
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.monitoredTabs) {
-    monitoredTabs = new Set(changes.monitoredTabs.newValue);
+    const newTabs = new Set(changes.monitoredTabs.newValue);
+    // Inject domTriggers for any newly added tabs
+    for (const tabId of newTabs) {
+      if (!monitoredTabs.has(tabId)) {
+        maybeInjectDomTriggers(tabId);
+      }
+    }
+    monitoredTabs = newTabs;
   }
 });
 
