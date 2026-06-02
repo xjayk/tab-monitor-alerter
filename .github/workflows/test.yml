@@ -46,14 +46,11 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Job 1: ESLint — runs in parallel with unit-tests and integration-tests
+  # Job 1: ESLint — runs in parallel with unit-tests
   # ---------------------------------------------------------------------------
   lint:
     name: ESLint
     runs-on: ubuntu-latest
-    # Extra guard: skip if the PR is still in draft state.
-    # This catches edge cases where GitHub delivers the event before the
-    # draft flag is reflected in the types filter.
     if: github.event.pull_request.draft == false || github.event_name == 'push'
     steps:
       - name: Checkout repository
@@ -97,6 +94,10 @@ jobs:
   # ---------------------------------------------------------------------------
   # Job 3: Playwright integration tests (Chrome Extension)
   #
+  # Only runs when lint AND unit-tests both pass — no point spending
+  # ~2-3 min on browser install + test execution if the code already has
+  # lint errors or failing unit tests.
+  #
   # Requires --with-deps to install Linux system-level Chromium dependencies
   # (libglib, libnss, libatk, etc.) that are not bundled with the runner.
   # Uses --headless=new (set in playwright.config.js via process.env.CI) so
@@ -105,6 +106,8 @@ jobs:
   integration-tests:
     name: Integration Tests (Playwright)
     runs-on: ubuntu-latest
+    needs: [lint, unit-tests]
+    if: github.event.pull_request.draft == false || github.event_name == 'push'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
