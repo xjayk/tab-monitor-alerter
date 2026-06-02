@@ -1,6 +1,7 @@
 let badgeInterval = null;
 let isRed = false;
 let alertingTabId = null;
+let offscreenCreating = null;
 
 // Track monitored tabs in memory (sync with storage)
 let monitoredTabs = new Set();
@@ -73,16 +74,28 @@ function clearAlert() {
 }
 
 async function playSound() {
-  const existingContexts = await chrome.runtime.getContexts({
+  const existing = await chrome.runtime.getContexts({
     contextTypes: ['OFFSCREEN_DOCUMENT'],
   });
+  if (existing.length > 0) {
+    chrome.runtime.sendMessage({ type: 'PLAY_AUDIO' });
+    return;
+  }
 
-  if (existingContexts.length === 0) {
-    await chrome.offscreen.createDocument({
+  if (!offscreenCreating) {
+    offscreenCreating = chrome.offscreen.createDocument({
       url: 'offscreen.html',
       reasons: ['AUDIO_PLAYBACK'],
       justification: 'Play alert beep'
     });
   }
-  chrome.runtime.sendMessage({ type: 'PLAY_AUDIO' });
+
+  try {
+    await offscreenCreating;
+    chrome.runtime.sendMessage({ type: 'PLAY_AUDIO' });
+  } catch (e) {
+    console.error('Failed to create offscreen document:', e);
+  } finally {
+    offscreenCreating = null;
+  }
 }
