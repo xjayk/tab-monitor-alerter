@@ -6,11 +6,24 @@ on:
   push:
     branches:
       - trunk
+    # Skip CI when only doc/asset files changed — they cannot affect
+    # lint or test outcomes.
+    paths-ignore:
+      - '**/*.md'
+      - '*.html'
+      - '.gitignore'
+      - '.gitattributes'
 
   # Run on all PRs against the simulated merge commit (branch + base).
   # This is the primary pre-merge validation signal.
   pull_request:
     branches: ['**']
+    # Same exclusions as push — doc/asset-only PRs skip CI.
+    paths-ignore:
+      - '**/*.md'
+      - '*.html'
+      - '.gitignore'
+      - '.gitattributes'
 
 jobs:
   # ---------------------------------------------------------------------------
