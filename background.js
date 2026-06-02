@@ -14,13 +14,6 @@ if (res.monitoredTabs) {
   monitoredTabs = new Set(res.monitoredTabs);
 }
 
-// Update memory when popup changes storage
-chrome.storage.onChanged.addListener((changes) => {
-  if (changes.monitoredTabs) {
-    monitoredTabs = new Set(changes.monitoredTabs.newValue);
-  }
-});
-
 // 1. Listen for Title Updates
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.title && monitoredTabs.has(tabId)) {
@@ -34,6 +27,9 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     triggerAlert(sender.tab.id);
   } else if (message.type === 'CLEAR_ALERT') {
     clearAlert();
+  } else if (message.type === 'UPDATE_MONITORED_TABS' && !sender.tab) {
+    monitoredTabs = new Set(message.tabIds);
+    chrome.storage.local.set({ monitoredTabs: Array.from(monitoredTabs) });
   }
 });
 

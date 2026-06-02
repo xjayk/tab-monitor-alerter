@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
           } else {
             monitoredTabs.delete(tab.id);
           }
-          chrome.storage.local.set({ monitoredTabs: Array.from(monitoredTabs) });
+          chrome.runtime.sendMessage({ type: 'UPDATE_MONITORED_TABS', tabIds: Array.from(monitoredTabs) });
         });
 
         item.appendChild(title);
