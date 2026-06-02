@@ -75,17 +75,26 @@ describe('titleMatchesPattern', () => {
     warnSpy.mockRestore();
   });
 
-  it('is case-sensitive by default', () => {
+  it('is case-sensitive by default (JS regex has no implicit case-insensitivity)', () => {
+    // 'Inbox' pattern does NOT match lowercase 'inbox' — JS regex is case-sensitive by default
     expect(titleMatchesPattern('inbox', 'Inbox')).toBe(false);
   });
 
-  it('supports case-insensitive flag in pattern', () => {
-    expect(titleMatchesPattern('inbox', '(?i)inbox')).toBe(false); // JS regex uses flags differently
-    expect(titleMatchesPattern('inbox', 'inbox')).toBe(true);
+  it('is case-sensitive: uppercase pattern does not match lowercase title', () => {
+    // Users who want case-insensitive matching must include the (?i) equivalent
+    // In JS regex, case-insensitive is achieved via the /i flag: new RegExp(pattern, 'i')
+    // The current titleMatchesPattern implementation uses new RegExp(pattern) without flags,
+    // so uppercase 'INBOX' does not match 'inbox'. This is documented expected behaviour.
+    expect(titleMatchesPattern('inbox', 'INBOX')).toBe(false);
   });
 
   it('matches partial title (not anchored by default)', () => {
     expect(titleMatchesPattern('GitHub - Pull Request #5', 'Pull Request')).toBe(true);
+  });
+
+  it('matches title using anchored start pattern', () => {
+    expect(titleMatchesPattern('Inbox (3)', '^Inbox')).toBe(true);
+    expect(titleMatchesPattern('My Inbox (3)', '^Inbox')).toBe(false);
   });
 });
 
