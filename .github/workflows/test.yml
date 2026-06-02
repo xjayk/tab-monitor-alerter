@@ -25,6 +25,20 @@ on:
       - '.gitignore'
       - '.gitattributes'
 
+# ---------------------------------------------------------------------------
+# Concurrency: cancel superseded runs on the same PR or branch.
+#
+# For pull_request: each PR gets its own group (by PR number). A new push
+# cancels any in-progress run for that PR — only the latest commit matters.
+#
+# For push to trunk: scoped to the branch name. cancel-in-progress is false
+# so a post-merge trunk validation is never silently dropped — runs queue
+# instead (fast merges to trunk are rare in practice).
+# ---------------------------------------------------------------------------
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # ---------------------------------------------------------------------------
   # Job 1: ESLint — runs in parallel with unit-tests
