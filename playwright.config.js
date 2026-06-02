@@ -11,14 +11,13 @@ export default defineConfig({
   testDir: './tests/integration',
   timeout: 30_000,
 
-  use: {
-    // Extensions require a persistent context — configured per-test via
-    // the shared fixture in tests/integration/fixtures.js.
-    // On CI, inject --headless=new so Chromium runs without a display.
-    launchOptions: {
-      args: process.env.CI ? ['--headless=new'] : [],
-    },
-  },
+  // Extensions require a persistent context — configured per-test via
+  // the shared fixture in tests/integration/fixtures.js.
+  // Note: --headless=new is NOT used here. Extension support under
+  // --headless=new is inconsistent on Linux CI runners. Instead, the CI
+  // workflow runs tests via xvfb-run to provide a virtual display for
+  // headed Chromium. See .github/workflows/test.yml.
+  use: {},
 
   projects: [
     {
