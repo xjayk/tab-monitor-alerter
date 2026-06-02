@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 2. Render standard UI if no alert is active
     document.getElementById('ui-container').classList.remove('hidden');
-    let monitoredTabs = new Set(data.monitoredTabs || []);
+    const monitoredTabs = new Set(data.monitoredTabs || []);
 
     chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT }, (tabs) => {
       const list = document.getElementById('tab-list');
