@@ -41,7 +41,7 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Job 1: ESLint — runs in parallel with unit-tests
+  # Job 1: ESLint — runs in parallel with unit-tests and integration-tests
   # ---------------------------------------------------------------------------
   lint:
     name: ESLint
@@ -83,3 +83,35 @@ jobs:
 
       - name: Run unit tests
         run: npm test
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Playwright integration tests (Chrome Extension)
+  #
+  # Requires --with-deps to install Linux system-level Chromium dependencies
+  # (libglib, libnss, libatk, etc.) that are not bundled with the runner.
+  # Uses --headless=new (set in playwright.config.js via process.env.CI) so
+  # tests run without a display server.
+  # ---------------------------------------------------------------------------
+  integration-tests:
+    name: Integration Tests (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        # Use npm install (not npm ci) until package-lock.json is regenerated
+        # locally to include @playwright/test.
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Run integration tests
+        run: npm run test:integration
