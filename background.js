@@ -4,11 +4,15 @@ let alertingTabId = null;
 
 // Track monitored tabs in memory (sync with storage)
 let monitoredTabs = new Set();
-chrome.storage.local.get(['monitoredTabs'], (res) => {
-  if (res.monitoredTabs) {
-    monitoredTabs = new Set(res.monitoredTabs);
-  }
-});
+
+// Top-level await: suspend SW module execution here until storage is read.
+// This is intentional — all event listeners below are registered AFTER this
+// resolves, guaranteeing monitoredTabs is populated before any event can fire.
+// MV3 service workers fully support top-level await.
+const res = await chrome.storage.local.get(['monitoredTabs']);
+if (res.monitoredTabs) {
+  monitoredTabs = new Set(res.monitoredTabs);
+}
 
 // Update memory when popup changes storage
 chrome.storage.onChanged.addListener((changes) => {
