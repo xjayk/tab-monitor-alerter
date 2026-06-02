@@ -14,10 +14,15 @@ on:
       - '.gitignore'
       - '.gitattributes'
 
-  # Run on all PRs against the simulated merge commit (branch + base).
-  # This is the primary pre-merge validation signal.
+  # Run on non-draft PRs only.
+  # - opened / synchronize / reopened: standard PR lifecycle events
+  # - ready_for_review: fires when a draft is converted to ready — this
+  #   ensures CI triggers the moment a PR leaves draft state.
+  # Draft pushes are intentionally excluded to avoid wasting runner
+  # minutes on work-in-progress branches.
   pull_request:
     branches: ['**']
+    types: [opened, synchronize, reopened, ready_for_review]
     # Same exclusions as push — doc/asset-only PRs skip CI.
     paths-ignore:
       - '**/*.md'
@@ -46,6 +51,10 @@ jobs:
   lint:
     name: ESLint
     runs-on: ubuntu-latest
+    # Extra guard: skip if the PR is still in draft state.
+    # This catches edge cases where GitHub delivers the event before the
+    # draft flag is reflected in the types filter.
+    if: github.event.pull_request.draft == false || github.event_name == 'push'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -68,6 +77,7 @@ jobs:
   unit-tests:
     name: Unit Tests (Vitest)
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false || github.event_name == 'push'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
