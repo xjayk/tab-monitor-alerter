@@ -2,9 +2,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // 1. Check for Active Alert Navigation
   chrome.storage.local.get(['alertingTabId', 'monitoredTabs'], (data) => {
     if (data.alertingTabId) {
-      // Best-effort: activate the tab in its window
-      chrome.tabs.update(data.alertingTabId, { active: true });
-      // Navigate to the tab's window and close popup
       chrome.tabs.get(data.alertingTabId, (tab) => {
         if (chrome.runtime.lastError || !tab) {
           // Tab is gone; clear stale state so popup isn't hijacked forever
@@ -12,6 +9,8 @@ document.addEventListener('DOMContentLoaded', () => {
           window.close();
           return;
         }
+        // Tab is confirmed live — activate it and focus its window
+        chrome.tabs.update(tab.id, { active: true });
         chrome.windows.update(tab.windowId, { focused: true });
         chrome.runtime.sendMessage({ type: 'CLEAR_ALERT' });
         window.close();
