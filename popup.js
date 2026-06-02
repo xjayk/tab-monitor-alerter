@@ -51,14 +51,11 @@ document.addEventListener('DOMContentLoaded', () => {
           // The background SW syncs its in-memory set via storage.onChanged;
           // this avoids the MV3 race where a MONITOR_TAB message is silently
           // dropped if the SW is not yet alive.
-          chrome.storage.local.set(
-            { monitoredTabs: Array.from(monitoredTabs) },
-            () => {
-              if (chrome.runtime.lastError) {
-                console.error('Failed to persist monitoredTabs:', chrome.runtime.lastError);
-              }
-            }
-          );
+          chrome.storage.local
+            .set({ monitoredTabs: Array.from(monitoredTabs) })
+            .catch((error) => {
+              console.error('Failed to persist monitoredTabs:', error);
+            });
         });
 
         item.appendChild(title);
