@@ -27,8 +27,11 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     triggerAlert(sender.tab.id);
   } else if (message.type === 'CLEAR_ALERT') {
     clearAlert();
-  } else if (message.type === 'UPDATE_MONITORED_TABS' && !sender.tab) {
-    monitoredTabs = new Set(message.tabIds);
+  } else if (message.type === 'MONITOR_TAB' && !sender.tab) {
+    monitoredTabs.add(message.tabId);
+    chrome.storage.local.set({ monitoredTabs: Array.from(monitoredTabs) });
+  } else if (message.type === 'UNMONITOR_TAB' && !sender.tab) {
+    monitoredTabs.delete(message.tabId);
     chrome.storage.local.set({ monitoredTabs: Array.from(monitoredTabs) });
   }
 });

@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
           } else {
             monitoredTabs.delete(tab.id);
           }
-          chrome.runtime.sendMessage({ type: 'UPDATE_MONITORED_TABS', tabIds: Array.from(monitoredTabs) });
+          chrome.runtime.sendMessage({ type: e.target.checked ? 'MONITOR_TAB' : 'UNMONITOR_TAB', tabId: tab.id });
         });
 
         item.appendChild(title);
