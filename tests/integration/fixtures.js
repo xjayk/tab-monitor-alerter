@@ -12,7 +12,11 @@ export const test = base.extend({
    * Persistent browser context with the unpacked extension loaded.
    * On CI the global launchOptions in playwright.config.js injects
    * --headless=new; locally this opens a real Chromium window.
+   *
+   * The first argument is the fixtures object — no fixtures are needed
+   * for context creation, so it is named `_` (unused param convention).
    */
+  // eslint-disable-next-line no-empty-pattern
   context: async ({}, use) => {
     const context = await chromium.launchPersistentContext('', {
       headless: false,
@@ -40,13 +44,17 @@ export const test = base.extend({
    * Helper: read keys from chrome.storage.local via the SW context.
    * Usage: const data = await getStorage(['monitoredTabs']);
    *
+   * The callback passed to evaluate() is serialised and executed inside
+   * the extension service worker — `chrome` is valid there, not here.
+   *
    * @param {string[]} keys
    * @returns {Promise<Record<string, unknown>>}
    */
   getStorage: async ({ serviceWorker }, use) => {
     const get = (keys) =>
       serviceWorker.evaluate(
-        (keys) => chrome.storage.local.get(keys),
+        // eslint-disable-next-line no-undef
+        (k) => chrome.storage.local.get(k),
         keys
       );
     await use(get);
@@ -56,9 +64,12 @@ export const test = base.extend({
    * Helper: clear all extension storage.
    * Call at the start or end of tests that mutate storage to prevent
    * state leaking between test cases.
+   *
+   * The callback is executed inside the extension SW — `chrome` is valid there.
    */
   clearStorage: async ({ serviceWorker }, use) => {
     await use(() =>
+      // eslint-disable-next-line no-undef
       serviceWorker.evaluate(() => chrome.storage.local.clear())
     );
   },

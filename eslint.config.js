@@ -57,14 +57,19 @@ export default [
     rules: {
       'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       'no-undef': 'error',
-      // Allow console in tests for debugging
       'no-console': 'off',
     },
   },
 
   // -------------------------------------------------------------------------
-  // Integration test files: run in Node.js via Playwright
-  // Need Node globals (process, etc.) — NOT browser globals.
+  // Integration test files: run in Node.js via Playwright.
+  //
+  // Need Node globals (process, URL, etc.) — NOT browser globals.
+  //
+  // `chrome` is declared here because evaluate() callbacks are serialised
+  // and executed inside the extension service worker where `chrome` is
+  // available. ESLint analyses them in Node scope, so we declare it to
+  // prevent false no-undef errors without per-line disable comments.
   // -------------------------------------------------------------------------
   {
     files: ['tests/integration/**/*.js'],
@@ -73,6 +78,8 @@ export default [
       sourceType: 'module',
       globals: {
         ...globals.node,
+        // Declared for evaluate() callbacks that run inside the extension SW
+        chrome: 'readonly',
       },
     },
     rules: {
@@ -83,7 +90,7 @@ export default [
   },
 
   // -------------------------------------------------------------------------
-  // Config files (this file, vitest config if added later)
+  // Config files (this file, vitest.config.js, playwright.config.js)
   // -------------------------------------------------------------------------
   {
     files: ['*.config.js', '.eslintrc.*'],
