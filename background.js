@@ -4,11 +4,13 @@ let alertingTabId = null;
 
 // Track monitored tabs in memory (sync with storage)
 let monitoredTabs = new Set();
-chrome.storage.local.get(['monitoredTabs'], (res) => {
-  if (res.monitoredTabs) {
-    monitoredTabs = new Set(res.monitoredTabs);
-  }
-});
+
+// Load storage before registering listeners to avoid race condition
+// (listeners registered below won't fire until after this completes)
+const res = await chrome.storage.local.get(['monitoredTabs']);
+if (res.monitoredTabs) {
+  monitoredTabs = new Set(res.monitoredTabs);
+}
 
 // Update memory when popup changes storage
 chrome.storage.onChanged.addListener((changes) => {
