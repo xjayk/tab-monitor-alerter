@@ -33,6 +33,7 @@ export function shouldDebounce(lastAlertTime, tabId, now, debounceMs) {
  * @returns {boolean} true if the title matches (or pattern is empty/invalid)
  */
 export function titleMatchesPattern(title, pattern) {
+  if (typeof title !== 'string') return false;
   if (!pattern || pattern.trim() === '') return true;
   try {
     const regex = new RegExp(pattern);
