@@ -68,6 +68,7 @@ export function filterStaleTabs(storedIds, liveIds) {
  * @returns {Object} Normalized monitoredTabs in object format
  */
 export function migrateMonitoredTabs(stored) {
+  if (!stored) return {};
   if (Array.isArray(stored)) {
     const migrated = {};
     stored.forEach(id => {
