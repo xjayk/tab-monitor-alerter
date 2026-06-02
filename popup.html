@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tab Monitor & Alerter</title>
+  <style>
+    body { font-family: sans-serif; width: 300px; padding: 10px; margin: 0; }
+    h3 { margin-top: 0; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+    .tab-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #eee; }
+    .tab-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
+    .toggle { cursor: pointer; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div id="ui-container" class="hidden">
+    <h3>Monitored Tabs</h3>
+    <div id="tab-list"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
