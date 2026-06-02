@@ -49,11 +49,17 @@ export function titleMatchesPattern(title, pattern) {
  * returning only IDs that still correspond to an open tab.
  * Used during startup cleanup to remove stale monitored tab entries.
  *
+ * Returns an empty array if either argument is missing or invalid, rather than
+ * throwing a TypeError — defensive against uninitialized storage state.
+ *
  * @param {number[]} storedIds - Array of tab IDs from chrome.storage.local
  * @param {Set<number>} liveIds - Set of currently open tab IDs
  * @returns {number[]} Filtered array containing only live IDs
  */
 export function filterStaleTabs(storedIds, liveIds) {
+  if (!Array.isArray(storedIds) || !liveIds || typeof liveIds.has !== 'function') {
+    return [];
+  }
   return storedIds.filter(id => liveIds.has(id));
 }
 
@@ -65,6 +71,7 @@ export function filterStaleTabs(storedIds, liveIds) {
  * New format: { "123": { pattern: "" }, "456": { pattern: "" } }
  *
  * If the value is already in object format, it is returned unchanged.
+ * If the value is null/undefined (uninitialized storage), returns an empty object.
  *
  * @param {number[]|Object} stored - The raw value from chrome.storage.local
  * @returns {Object} Normalized monitoredTabs in object format

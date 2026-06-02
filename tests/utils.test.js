@@ -63,6 +63,14 @@ describe('titleMatchesPattern', () => {
     expect(titleMatchesPattern('Anything', undefined)).toBe(true);
   });
 
+  it('returns false when title is null (not a string)', () => {
+    expect(titleMatchesPattern(null, 'inbox')).toBe(false);
+  });
+
+  it('returns false when title is undefined (not a string)', () => {
+    expect(titleMatchesPattern(undefined, 'inbox')).toBe(false);
+  });
+
   it('falls back to true (match-any) on invalid regex and logs a warning', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const result = titleMatchesPattern('Some Title', '[[invalid');
@@ -76,15 +84,10 @@ describe('titleMatchesPattern', () => {
   });
 
   it('is case-sensitive by default (JS regex has no implicit case-insensitivity)', () => {
-    // 'Inbox' pattern does NOT match lowercase 'inbox' — JS regex is case-sensitive by default
     expect(titleMatchesPattern('inbox', 'Inbox')).toBe(false);
   });
 
   it('is case-sensitive: uppercase pattern does not match lowercase title', () => {
-    // Users who want case-insensitive matching must include the (?i) equivalent
-    // In JS regex, case-insensitive is achieved via the /i flag: new RegExp(pattern, 'i')
-    // The current titleMatchesPattern implementation uses new RegExp(pattern) without flags,
-    // so uppercase 'INBOX' does not match 'inbox'. This is documented expected behaviour.
     expect(titleMatchesPattern('inbox', 'INBOX')).toBe(false);
   });
 
@@ -120,6 +123,23 @@ describe('filterStaleTabs', () => {
 
   it('handles a single stale ID correctly', () => {
     expect(filterStaleTabs([99], new Set([1, 2]))).toEqual([]);
+  });
+
+  it('returns empty array when storedIds is undefined (uninitialized storage)', () => {
+    expect(filterStaleTabs(undefined, new Set([1, 2]))).toEqual([]);
+  });
+
+  it('returns empty array when storedIds is null', () => {
+    expect(filterStaleTabs(null, new Set([1, 2]))).toEqual([]);
+  });
+
+  it('returns empty array when liveIds is undefined', () => {
+    expect(filterStaleTabs([1, 2], undefined)).toEqual([]);
+  });
+
+  it('returns empty array when liveIds is a plain object (not a Set)', () => {
+    // Plain objects don't have a .has() method — guard should catch this
+    expect(filterStaleTabs([1, 2], { 1: true, 2: true })).toEqual([]);
   });
 });
 
