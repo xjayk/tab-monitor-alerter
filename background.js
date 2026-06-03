@@ -14,7 +14,12 @@ const res = await chrome.storage.local.get(['monitoredTabs']);
 if (res.monitoredTabs) {
   monitoredTabs = new Set(res.monitoredTabs);
 }
-await cleanupStaleMonitoredTabs();
+// Defer cleanup so it doesn't block SW startup or race against session
+// restore. setTimeout gives Chrome time to finish restoring tabs before
+// we cross-reference IDs.
+setTimeout(() => {
+  cleanupStaleMonitoredTabs().catch(console.error);
+}, 5000);
 
 // ---------------------------------------------------------------------------
 // Default DOM trigger selectors per hostname.
@@ -127,33 +132,8 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// 1. Listen for Title Updates and Tab Restoration (from discard)
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, _tab) => {
-  // Re-inject content scripts when a monitored tab is restored from discard.
-  // Chrome's Memory Saver can discard background tabs, destroying content
-  // scripts. The changeInfo.discarded field is present only when the discarded
-  // state actually transitions (false = restored, true = discarded).
-  if (changeInfo.discarded === false && monitoredTabs.has(tabId)) {
-    Promise.allSettled([
-      chrome.scripting.executeScript({
-        target: { tabId },
-        files: ['content-main.js'],
-        world: 'MAIN',
-      }),
-      chrome.scripting.executeScript({
-        target: { tabId },
-        files: ['content-isolated.js'],
-      }),
-    ]).then(results => {
-      for (const r of results) {
-        if (r.status === 'rejected') {
-          console.warn('Failed to re-inject content scripts into restored tab', tabId, r.reason);
-        }
-      }
-    });
-  }
-
-  // Alert on title changes for monitored tabs
+// 1. Listen for Title Updates
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.title && monitoredTabs.has(tabId)) {
     triggerAlert(tabId);
   }
