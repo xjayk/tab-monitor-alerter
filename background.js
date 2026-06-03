@@ -8,32 +8,14 @@ let badgeInterval = null;
 let isRed = false;
 let alertingTabId = null;
 let offscreenCreating = null;
-
-// Track monitored tabs as a map of tabId -> { pattern: '' }.
-// Storage shape: monitoredTabs = { "123": { pattern: "" }, "456": { pattern: "" } }
 let monitoredTabs = {};
 
-// ---------------------------------------------------------------------------
-// Default DOM trigger selectors per hostname.
-// ---------------------------------------------------------------------------
 const DEFAULT_DOM_TRIGGERS = {
   'www.perplexity.ai': ['button[aria-label="Approve"]'],
 };
 
-/**
- * Returns true for URLs where Chrome does not allow content script injection
- * and therefore the extension cannot meaningfully monitor the tab.
- *
- * Note: a missing/empty URL (can occur when the SW wakes and onUpdated fires
- * before the tab object is fully hydrated) is treated as INJECTABLE (returns
- * false) so we do not silently drop title-change alerts on real https:// tabs.
- * Only explicitly non-injectable schemes are blocked.
- *
- * @param {string|undefined} url
- * @returns {boolean}
- */
 function isNonInjectableUrl(url) {
-  if (!url) return false; // Unknown URL — do not block; monitoredTabs gate still applies
+  if (!url) return false;
   return (
     url.startsWith('chrome://') ||
     url.startsWith('chrome-extension://') ||
@@ -41,21 +23,16 @@ function isNonInjectableUrl(url) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Init: read persisted state from storage.
-// Must be an async function — top-level await is not allowed in SW modules.
-// Event listeners are registered synchronously below (no events are missed).
-// ---------------------------------------------------------------------------
 async function init() {
   let res = {};
   try {
     res = await chrome.storage.local.get(['monitoredTabs']);
   } catch (err) {
-    console.error('Failed to read monitoredTabs from storage:', err);
+    console.error('[tab-alerter/bg] Failed to read monitoredTabs from storage:', err);
   }
   monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
+  console.log('[tab-alerter/bg] init complete, monitoredTabs:', JSON.stringify(monitoredTabs));
 
-  // Defer cleanup so it doesn't race against session restore.
   setTimeout(() => {
     cleanupStaleMonitoredTabs().catch(console.error);
   }, CLEANUP_DELAY_MS);
@@ -63,14 +40,6 @@ async function init() {
 
 void init();
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * If the tab's URL matches a known host in DEFAULT_DOM_TRIGGERS, write
- * those selectors into tabDomTriggers[tabId] in storage.
- */
 function maybeInjectDomTriggers(tabId) {
   chrome.tabs.get(tabId, (tab) => {
     if (chrome.runtime.lastError || !tab || !tab.url) return;
@@ -87,15 +56,11 @@ function maybeInjectDomTriggers(tabId) {
         });
       });
     } catch {
-      // Unparseable URL (e.g. chrome:// pages) — ignore
+      // ignore
     }
   });
 }
 
-/**
- * Remove a tab's DOM trigger entry from storage when it is unmonitored
- * or closed, to avoid unbounded storage growth.
- */
 function removeDomTriggers(tabId) {
   chrome.storage.local.get(['tabDomTriggers'], (result) => {
     if (chrome.runtime.lastError) return;
@@ -107,10 +72,6 @@ function removeDomTriggers(tabId) {
   });
 }
 
-/**
- * Cross-reference monitored tab IDs against currently open tabs and remove
- * any stale entries from previous browser sessions.
- */
 async function cleanupStaleMonitoredTabs() {
   const keys = Object.keys(monitoredTabs);
   if (keys.length === 0) return;
@@ -131,11 +92,6 @@ async function cleanupStaleMonitoredTabs() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Event listeners — registered synchronously at module evaluation time
-// ---------------------------------------------------------------------------
-
-// Sync in-memory monitoredTabs when popup changes storage
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.monitoredTabs) {
     const raw = changes.monitoredTabs.newValue;
@@ -153,31 +109,45 @@ chrome.storage.onChanged.addListener((changes) => {
       if (!newSet.has(key)) removeDomTriggers(Number(key));
     }
     monitoredTabs = newTabs;
+    console.log('[tab-alerter/bg] monitoredTabs updated:', JSON.stringify(monitoredTabs));
   }
 });
 
-// 1. Listen for title updates
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!changeInfo.title) return;
-  // Block explicitly non-injectable schemes. A missing/empty tab.url is NOT
-  // blocked — Chrome can fire onUpdated with tab.url temporarily absent when
-  // the service worker wakes from dormancy, and we must not drop those events.
-  if (isNonInjectableUrl(tab?.url)) return;
+  const monitored = !!monitoredTabs[String(tabId)];
+  const nonInjectable = isNonInjectableUrl(tab?.url);
+  console.log(
+    '[tab-alerter/bg] onUpdated title event:',
+    '| tabId:', tabId,
+    '| title:', changeInfo.title,
+    '| tab.url:', tab?.url,
+    '| isNonInjectableUrl:', nonInjectable,
+    '| inMonitoredTabs:', monitored
+  );
+  if (nonInjectable) return;
   const config = monitoredTabs[String(tabId)];
   if (!config) return;
   if (!titleMatchesPattern(changeInfo.title, config.pattern)) return;
   triggerAlert(tabId);
 });
 
-// 2. Listen for web notification intercepts, popup actions, and content script requests
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log(
+    '[tab-alerter/bg] message received:',
+    message.type,
+    '| sender.tab.id:', sender.tab?.id,
+    '| sender.tab.url:', sender.tab?.url
+  );
+
   if (message.type === 'TRIGGER_ALERT' && sender.tab && monitoredTabs[String(sender.tab.id)]) {
+    console.log('[tab-alerter/bg] TRIGGER_ALERT accepted for tab:', sender.tab.id);
     triggerAlert(sender.tab.id);
+  } else if (message.type === 'TRIGGER_ALERT' && sender.tab) {
+    console.warn('[tab-alerter/bg] TRIGGER_ALERT received but tab', sender.tab.id, 'is NOT in monitoredTabs. Current monitoredTabs:', JSON.stringify(monitoredTabs));
   } else if (message.type === 'CLEAR_ALERT') {
     clearAlert();
   } else if (message.type === 'GET_DOM_TRIGGERS' && sender.tab) {
-    // Content scripts cannot access chrome.tabs, so they ask the background
-    // to resolve their tab ID (via sender.tab.id) and look up their selectors.
     const tabId = sender.tab.id;
     chrome.storage.local.get(['tabDomTriggers'], (result) => {
       if (chrome.runtime.lastError) {
@@ -185,9 +155,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
       const allTriggers = result.tabDomTriggers || {};
-      sendResponse(allTriggers[tabId] || []);
+      const selectors = allTriggers[tabId] || [];
+      console.log('[tab-alerter/bg] GET_DOM_TRIGGERS for tab', tabId, '-> selectors:', selectors);
+      sendResponse(selectors);
     });
-    return true; // Keep message channel open for async sendResponse
+    return true;
   } else if (message.type === 'MONITOR_TAB' && !sender.tab) {
     if (typeof message.tabId === 'number') {
       const updated = { ...monitoredTabs, [String(message.tabId)]: { pattern: '' } };
@@ -212,7 +184,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-// Clean up if the alerting tab is closed
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === alertingTabId) clearAlert();
   const key = String(tabId);
@@ -224,12 +195,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   delete lastAlertTime[tabId];
 });
 
-// ---------------------------------------------------------------------------
-// Alert logic
-// ---------------------------------------------------------------------------
-
 function triggerAlert(tabId) {
-  if (shouldDebounce(lastAlertTime, tabId, Date.now(), DEBOUNCE_MS)) return;
+  const debounced = shouldDebounce(lastAlertTime, tabId, Date.now(), DEBOUNCE_MS);
+  console.log('[tab-alerter/bg] triggerAlert called for tab', tabId, '| debounced:', debounced, '| already alerting:', alertingTabId === tabId);
+  if (debounced) return;
   lastAlertTime[tabId] = Date.now();
 
   if (alertingTabId === tabId) return;
@@ -278,7 +247,7 @@ async function playSound() {
     await offscreenCreating;
     chrome.runtime.sendMessage({ type: 'PLAY_AUDIO' });
   } catch (e) {
-    console.error('Failed to create offscreen document:', e);
+    console.error('[tab-alerter/bg] Failed to create offscreen document:', e);
   } finally {
     offscreenCreating = null;
   }
