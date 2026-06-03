@@ -20,10 +20,10 @@ function relaySendMessage(msg, responseCallback) {
     }
   } catch (e) {
     if (e.message && e.message.includes('Extension context invalidated')) {
-      // SW was terminated. Re-post DOM_OBSERVER_READY after a short delay so
-      // content-main.js can retry the handshake once the SW wakes up.
-      console.warn('[tab-alerter/isolated] Extension context invalidated — will retry handshake in 1 s');
-      setTimeout(() => window.postMessage({ type: 'DOM_OBSERVER_READY' }, targetOrigin), 1000);
+      // The extension was reloaded, updated, or disabled. This content script
+      // instance is permanently orphaned and cannot communicate with the
+      // background. Log and stop — retrying would create an infinite loop.
+      console.warn('[tab-alerter/isolated] Extension context invalidated — content script is orphaned');
     } else {
       console.warn('[tab-alerter/isolated] sendMessage error:', e.message);
     }
