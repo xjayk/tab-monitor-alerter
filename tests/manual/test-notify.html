@@ -155,7 +155,6 @@
       el.textContent = labels[permission] || permission;
     }
 
-    // Request immediately so the prompt appears before any button is clicked
     if (Notification.permission === 'granted' || Notification.permission === 'denied') {
       updateNotifStatus(Notification.permission);
     } else {
@@ -176,6 +175,10 @@
 
     // -----------------------------------------------------------------------
     // run(fn) — wraps every test action with delay + tab-switch options
+    //
+    // window.open() MUST be called synchronously here (inside the click
+    // handler) — browsers block window.open() inside setTimeout as it is
+    // no longer considered a direct user gesture.
     // -----------------------------------------------------------------------
     function run(fn) {
       if (countdownTimer !== null) {
@@ -188,27 +191,26 @@
       const useSwitch = optSwitch.checked;
       const seconds   = Math.max(1, parseInt(delayInput.value, 10) || 5);
 
-      function fire() {
-        if (useSwitch) {
-          window.open('about:blank', '_blank');
-          log('Opened blank tab — this tab is now in background');
-        }
-        fn();
+      // Open the blank tab immediately (synchronous user gesture) so this
+      // tab is already in the background before the countdown starts.
+      if (useSwitch) {
+        window.open('about:blank', '_blank');
+        log('Opened blank tab — this tab is now in background');
       }
 
       if (!useDelay) {
-        fire();
+        fn();
         return;
       }
 
       let remaining = seconds;
-      log(`Firing in ${remaining}s${useSwitch ? ' (will open blank tab)' : ' — switch tabs now!'}`, 'warn');
+      log(`Firing in ${remaining}s${useSwitch ? ' (running in background)' : ' — switch tabs now!'}`, 'warn');
 
       function tick() {
         remaining--;
         if (remaining <= 0) {
           countdownTimer = null;
-          fire();
+          fn();
         } else {
           log(`${remaining}s…`, 'warn');
           countdownTimer = setTimeout(tick, 1000);
