@@ -80,6 +80,9 @@ export default [
         ...globals.node,
         // Declared for evaluate() callbacks that run inside the extension SW
         chrome: 'readonly',
+        // Declared for evaluate() callbacks that run in browser MAIN world
+        window: 'readonly',
+        document: 'readonly',
       },
     },
     rules: {
