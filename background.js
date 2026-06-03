@@ -82,7 +82,7 @@ async function cleanupStaleMonitoredTabs() {
   const liveIds = new Set();
 
   for (const tab of allTabs) {
-    if (tab.id == null) continue;
+    if (tab.id === null) continue;
     liveIds.add(tab.id);
     // Seed catch-up baseline so onActivated can detect genuine changes.
     if (tab.title) {
