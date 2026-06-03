@@ -40,7 +40,7 @@ async function init() {
   }, CLEANUP_DELAY_MS);
 }
 
-const initPromise = init();
+void init();
 
 // ---------------------------------------------------------------------------
 // Helpers
