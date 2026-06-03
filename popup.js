@@ -21,7 +21,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. Show audio-blocked notice if needed
     if (data.audioBlocked) {
       const notice = document.getElementById('audio-notice');
-      notice.textContent = 'Audio is blocked by your browser. Allow audio for this extension in chrome://settings/content/sound.';
+      notice.innerHTML = '';
+      notice.appendChild(document.createTextNode('Audio is blocked by your browser. '));
+      const link = document.createElement('a');
+      link.href = '#';
+      link.textContent = 'Open sound settings';
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        chrome.tabs.create({ url: 'chrome://settings/content/sound' });
+      });
+      notice.appendChild(link);
       notice.classList.remove('hidden');
     }
 

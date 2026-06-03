@@ -130,7 +130,9 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     chrome.storage.local.set({ audioBlocked: true });
   } else if (message.type === 'AUDIO_OK') {
     chrome.storage.local.remove(['audioBlocked']);
-    chrome.action.setBadgeText({ text: '' });
+    if (alertingTabId === null) {
+      chrome.action.setBadgeText({ text: '' });
+    }
   }
 });
 
