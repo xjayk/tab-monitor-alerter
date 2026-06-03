@@ -59,7 +59,7 @@ async function cleanupStaleMonitoredTabs() {
   const liveIds = new Set();
 
   for (const tab of allTabs) {
-    if (tab.id == null) continue;
+    if (tab.id === null) continue;
     liveIds.add(tab.id);
     if (tab.title) {
       lastKnownTitle[tab.id] = tab.title;
