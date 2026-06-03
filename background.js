@@ -169,7 +169,7 @@ async function injectMonitor(tabId) {
 
   // Set or clean up DOM triggers for the tab's current URL so the
   // content script receives correct selectors when it requests them.
-  maybeInjectDomTriggers(tabId);
+  await maybeInjectDomTriggers(tabId);
 
   try {
     await chrome.scripting.executeScript({
