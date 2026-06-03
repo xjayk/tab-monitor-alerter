@@ -1,6 +1,7 @@
 import { shouldDebounce, titleMatchesPattern, migrateMonitoredTabs } from './src/utils.js';
 
 const DEBOUNCE_MS = 1000;
+const CLEANUP_DELAY_MS = 5000;
 const lastAlertTime = {};
 
 let badgeInterval = null;
@@ -20,6 +21,12 @@ try {
   console.error('Failed to read monitoredTabs from storage:', err);
 }
 monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
+// Defer cleanup so it doesn't block SW startup or race against session
+// restore. setTimeout gives Chrome time to finish restoring tabs before
+// we cross-reference IDs.
+setTimeout(() => {
+  cleanupStaleMonitoredTabs().catch(console.error);
+}, CLEANUP_DELAY_MS);
 
 // ---------------------------------------------------------------------------
 // Default DOM trigger selectors per hostname.
@@ -83,6 +90,32 @@ function removeDomTriggers(tabId) {
     delete updated[tabId];
     chrome.storage.local.set({ tabDomTriggers: updated });
   });
+}
+
+/**
+ * Cross-reference monitored tab IDs against currently open tabs and remove
+ * any stale entries (e.g. from a previous browser session where tabs were
+ * closed while the extension was not running). This prevents orphaned IDs
+ * from accumulating indefinitely.
+ */
+async function cleanupStaleMonitoredTabs() {
+  const keys = Object.keys(monitoredTabs);
+  if (keys.length === 0) return;
+
+  const allTabs = await chrome.tabs.query({});
+  const liveIds = new Set(allTabs.map(t => t.id));
+
+  let changed = false;
+  for (const key of keys) {
+    if (!liveIds.has(Number(key))) {
+      delete monitoredTabs[key];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await chrome.storage.local.set({ monitoredTabs });
+  }
 }
 
 // Update memory when popup changes storage
