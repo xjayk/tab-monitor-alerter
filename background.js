@@ -193,6 +193,7 @@ chrome.storage.onChanged.addListener((changes) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'loading' && monitoredTabs[String(tabId)]) {
     removeInjectedTab(tabId);
+    maybeInjectDomTriggers(tabId);
   }
 
   if (changeInfo.status === 'complete' && monitoredTabs[String(tabId)]) {
