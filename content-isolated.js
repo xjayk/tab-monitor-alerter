@@ -73,8 +73,8 @@ window.addEventListener('message', (event) => {
       // Use optional chaining: chrome.runtime may become undefined between
       // the sendMessage call and this async callback firing (context
       // invalidated mid-flight). Bare access would throw a TypeError.
-      if (chrome.runtime?.lastError) {
-        console.warn('[tab-alerter/isolated] GET_DOM_TRIGGERS error:', chrome.runtime.lastError.message);
+      if (!chrome.runtime || chrome.runtime.lastError) {
+        console.warn('[tab-alerter/isolated] GET_DOM_TRIGGERS error:', chrome.runtime?.lastError?.message || 'runtime unavailable');
         return;
       }
       console.log('[tab-alerter/isolated] GET_DOM_TRIGGERS response:', selectors);
