@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 1. Check for Active Alert Navigation
-  chrome.storage.local.get(['alertingTabId', 'monitoredTabs'], (data) => {
+  chrome.storage.local.get(['alertingTabId', 'monitoredTabs', 'audioBlocked'], (data) => {
     if (data.alertingTabId) {
       chrome.tabs.get(data.alertingTabId, (tab) => {
         if (chrome.runtime.lastError || !tab) {
@@ -18,7 +18,14 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // 2. Render standard UI if no alert is active
+    // 2. Show audio-blocked notice if needed
+    if (data.audioBlocked) {
+      const notice = document.getElementById('audio-notice');
+      notice.textContent = 'Audio is blocked by your browser. Allow audio for this extension in chrome://settings/content/sound.';
+      notice.classList.remove('hidden');
+    }
+
+    // 3. Render standard UI if no alert is active
     document.getElementById('ui-container').classList.remove('hidden');
     const monitoredTabs = new Set(data.monitoredTabs || []);
 

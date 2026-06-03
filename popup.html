@@ -10,9 +10,12 @@
     .tab-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
     .toggle { cursor: pointer; }
     .hidden { display: none; }
+    .notice { padding: 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px; }
+    .warning { background: #FFF3CD; border: 1px solid #FFEAA7; color: #856404; }
   </style>
 </head>
 <body>
+  <div id="audio-notice" class="hidden notice warning"></div>
   <div id="ui-container" class="hidden">
     <h3>Monitored Tabs</h3>
     <div id="tab-list"></div>

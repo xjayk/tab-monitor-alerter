@@ -124,6 +124,13 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       monitoredTabs.delete(message.tabId);
       chrome.storage.local.set({ monitoredTabs: Array.from(monitoredTabs) }).catch(console.error);
     }
+  } else if (message.type === 'AUDIO_BLOCKED') {
+    chrome.action.setBadgeText({ text: '??' });
+    chrome.action.setBadgeBackgroundColor({ color: '#FF8C00' });
+    chrome.storage.local.set({ audioBlocked: true });
+  } else if (message.type === 'AUDIO_OK') {
+    chrome.storage.local.remove(['audioBlocked']);
+    chrome.action.setBadgeText({ text: '' });
   }
 });
 
