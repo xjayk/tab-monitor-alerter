@@ -42,6 +42,43 @@ document.addEventListener('DOMContentLoaded', () => {
       const list = document.getElementById('tab-list');
       if (tabs.length === 0) list.innerHTML = '<p>No tabs found.</p>';
 
+      // --- Select All row ---
+      const selectAllRow = document.createElement('div');
+      selectAllRow.className = 'select-all-row';
+
+      const selectAllCheckbox = document.createElement('input');
+      selectAllCheckbox.type = 'checkbox';
+      selectAllCheckbox.id = 'select-all';
+
+      const selectAllLabel = document.createElement('label');
+      selectAllLabel.className = 'select-all-label';
+      selectAllLabel.textContent = 'Select All';
+      selectAllLabel.prepend(selectAllCheckbox);
+
+      selectAllRow.appendChild(selectAllLabel);
+      list.appendChild(selectAllRow);
+
+      const windowTabIds = tabs.map(t => t.id);
+      const monitoredCount = windowTabIds.filter(id => monitoredTabs.has(id)).length;
+      selectAllCheckbox.checked = monitoredCount === tabs.length;
+      selectAllCheckbox.indeterminate = monitoredCount > 0 && monitoredCount < tabs.length;
+
+      selectAllCheckbox.addEventListener('change', () => {
+        const checked = selectAllCheckbox.checked;
+        windowTabIds.forEach(id => {
+          if (checked) monitoredTabs.add(id);
+          else monitoredTabs.delete(id);
+        });
+        chrome.storage.local
+          .set({ monitoredTabs: Array.from(monitoredTabs) })
+          .catch(console.error);
+        list.querySelectorAll('.toggle').forEach(cb => {
+          cb.checked = checked;
+        });
+        selectAllCheckbox.indeterminate = false;
+      });
+      // --- end Select All ---
+
       tabs.forEach(tab => {
         const item = document.createElement('div');
         item.className = 'tab-item';
@@ -56,8 +93,8 @@ document.addEventListener('DOMContentLoaded', () => {
         checkbox.className = 'toggle';
         checkbox.checked = monitoredTabs.has(tab.id);
 
-        checkbox.addEventListener('change', (e) => {
-          if (e.target.checked) {
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) {
             monitoredTabs.add(tab.id);
           } else {
             monitoredTabs.delete(tab.id);
@@ -69,9 +106,13 @@ document.addEventListener('DOMContentLoaded', () => {
           // dropped if the SW is not yet alive.
           chrome.storage.local
             .set({ monitoredTabs: Array.from(monitoredTabs) })
-            .catch((error) => {
-              console.error('Failed to persist monitoredTabs:', error);
-            });
+            .catch(console.error);
+
+          // Sync select-all state
+          const toggles = list.querySelectorAll('.toggle');
+          const checkedCount = [...toggles].filter(cb => cb.checked).length;
+          selectAllCheckbox.checked = checkedCount === toggles.length;
+          selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < toggles.length;
         });
 
         item.appendChild(title);
