@@ -9,6 +9,7 @@ on:
       - '*.html'
       - '.gitignore'
       - '.gitattributes'
+      - '.gemini/'
 
   # Run on non-draft PRs only.
   # - opened / synchronize / reopened: standard PR lifecycle events
@@ -22,7 +23,8 @@ on:
       - '*.html'
       - '.gitignore'
       - '.gitattributes'
-
+      - '.gemini/'
+            
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
