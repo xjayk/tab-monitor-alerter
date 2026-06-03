@@ -83,6 +83,9 @@ export default [
         // Declared for evaluate() callbacks that run in browser MAIN world
         window: 'readonly',
         document: 'readonly',
+        // Declared for evaluate() callbacks that run inside the extension SW
+        // where globalThis is ServiceWorkerGlobalScope (self is defined)
+        self: 'readonly',
       },
     },
     rules: {
