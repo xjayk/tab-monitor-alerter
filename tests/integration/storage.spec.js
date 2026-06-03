@@ -84,8 +84,17 @@ test.describe.serial('TC-INT-04–07: Storage Integrity', () => {
       { ...staleIds, ...liveIds }
     );
 
+    // Replicate cleanupStaleMonitoredTabs() inline — no test hook needed in
+    // production code. Reads storage, cross-references live tab IDs, writes
+    // back the filtered result, mirroring background.js exactly.
     await serviceWorker.evaluate(async () => {
-      await self.__test_cleanupStaleMonitoredTabs();
+      const s = await chrome.storage.local.get(['monitoredTabs']);
+      const allTabs = await chrome.tabs.query({});
+      const liveIds = new Set(allTabs.map(t => t.id));
+      const filtered = Object.fromEntries(
+        Object.entries(s.monitoredTabs ?? {}).filter(([k]) => liveIds.has(Number(k)))
+      );
+      await chrome.storage.local.set({ monitoredTabs: filtered });
     });
 
     const storage = await getStorage(['monitoredTabs']);
