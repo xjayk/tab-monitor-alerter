@@ -43,10 +43,10 @@ async function init() {
   // before we attempt scripting.executeScript on them (avoids console errors).
   setTimeout(async () => {
     await cleanupStaleMonitoredTabs().catch(console.error);
-    // Re-inject content scripts into each surviving monitored tab.
-    // Content scripts persist across SW restarts in the page context, but we
-    // re-inject here to cover tabs that navigated while the SW was inactive.
-    // The guard in content-isolated.js prevents duplicate listener accumulation.
+    // Re-inject content-main.js into each surviving monitored tab.
+    // content-isolated.js is always injected statically via manifest.json,
+    // but content-main.js (MAIN world) may need to be restored after a
+    // navigation that occurred while the SW was inactive.
     for (const key of Object.keys(monitoredTabs)) {
       injectMonitor(Number(key)).catch(console.error);
     }
@@ -128,13 +128,13 @@ async function cleanupStaleMonitoredTabs() {
 // ---------------------------------------------------------------------------
 
 /**
- * Dynamically inject content scripts into a monitored tab.
+ * Dynamically inject content-main.js into a monitored tab.
+ * content-isolated.js is already injected statically via manifest.json
+ * so it is always available to relay messages.
+ *
  * Only injects once per tab navigation — guards against duplicate calls
  * via the injectedTabs Set. On navigation the entry is cleared so the
- * scripts are re-injected into the new document.
- *
- * content-isolated.js is injected first so its message listener is ready
- * before content-main.js runs and sends DOM_OBSERVER_READY.
+ * script is re-injected into the new document.
  */
 async function injectMonitor(tabId) {
   if (injectedTabs.has(tabId)) return;
@@ -143,15 +143,11 @@ async function injectMonitor(tabId) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ['content-isolated.js'],
-    });
-    await chrome.scripting.executeScript({
-      target: { tabId },
       files: ['content-main.js'],
       world: 'MAIN',
     });
   } catch (err) {
-    console.error(`Failed to inject content scripts into tab ${tabId}:`, err.message);
+    console.error(`Failed to inject content-main.js into tab ${tabId}:`, err.message);
     injectedTabs.delete(tabId);
   }
 }
@@ -164,7 +160,8 @@ function removeInjectedTab(tabId) {
 // Event listeners — registered synchronously at module evaluation time
 // ---------------------------------------------------------------------------
 
-// Sync in-memory monitoredTabs when popup changes storage
+// Sync in-memory monitoredTabs when popup changes storage.
+// Also injects content-main.js into newly monitored tabs.
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.monitoredTabs) {
     const raw = changes.monitoredTabs.newValue;
