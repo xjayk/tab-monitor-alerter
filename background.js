@@ -6,6 +6,8 @@ let offscreenCreating = null;
 // Track monitored tabs in memory (sync with storage)
 let monitoredTabs = new Set();
 
+const CLEANUP_DELAY_MS = 5000;
+
 // Top-level await: suspend SW module execution here until storage is read.
 // This is intentional — all event listeners below are registered AFTER this
 // resolves, guaranteeing monitoredTabs is populated before any event can fire.
@@ -19,7 +21,7 @@ if (res.monitoredTabs) {
 // we cross-reference IDs.
 setTimeout(() => {
   cleanupStaleMonitoredTabs().catch(console.error);
-}, 5000);
+}, CLEANUP_DELAY_MS);
 
 // ---------------------------------------------------------------------------
 // Default DOM trigger selectors per hostname.
