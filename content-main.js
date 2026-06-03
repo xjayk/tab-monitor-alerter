@@ -13,7 +13,7 @@
     const OriginalNotification = window.Notification;
 
     window.Notification = function (title, options) {
-      window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, '*');
+      window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, window.location.origin);
       return new OriginalNotification(title, options);
     };
 
@@ -58,7 +58,7 @@
     for (const selector of selectors) {
       if (node.matches(selector) || node.querySelector(selector)) {
         alertedNodes.add(node);
-        window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, '*');
+        window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, window.location.origin);
         // Short-circuit: background debounce handles rapid DOM churn
         return;
       }
@@ -90,6 +90,13 @@
       childList: true,
       subtree: true,
     });
+
+    // Scan existing DOM for elements that already match — the observer only
+    // fires for future mutations, so elements present at injection time would
+    // otherwise be missed (elements loaded as part of the static page).
+    for (const selector of selectors) {
+      document.querySelectorAll(selector).forEach((node) => checkNode(node, selectors));
+    }
   }
 
   /**
@@ -127,7 +134,7 @@
     });
 
     // Signal to the ISOLATED world that we are ready to receive triggers
-    window.postMessage({ type: 'DOM_OBSERVER_READY' }, '*');
+    window.postMessage({ type: 'DOM_OBSERVER_READY' }, window.location.origin);
   }
 
   // Wait for DOM to be ready before starting the observer to avoid catching

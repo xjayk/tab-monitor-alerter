@@ -69,11 +69,23 @@ function maybeInjectDomTriggers(tabId) {
     try {
       const host = new URL(tab.url).hostname;
       const selectors = DEFAULT_DOM_TRIGGERS[host];
-      if (!selectors) return;
 
       chrome.storage.local.get(['tabDomTriggers'], (result) => {
         if (chrome.runtime.lastError) return;
         const current = result.tabDomTriggers || {};
+
+        if (!selectors) {
+          // No triggers for this host — clean up stale entry from a
+          // previous navigation so the content script does not receive
+          // selectors that no longer apply.
+          if (tabId in current) {
+            const updated = { ...current };
+            delete updated[tabId];
+            chrome.storage.local.set({ tabDomTriggers: updated });
+          }
+          return;
+        }
+
         chrome.storage.local.set({
           tabDomTriggers: { ...current, [tabId]: selectors },
         });
@@ -141,6 +153,25 @@ async function injectMonitor(tabId) {
   injectedTabs.add(tabId);
 
   try {
+    // Verify the tab is fully loaded before injecting — injecting into a
+    // still-loading tab targets the initial about:blank document and the
+    // script is lost on navigation. The onUpdated 'complete' handler will
+    // retry when the tab finishes loading.
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status !== 'complete') {
+      return;
+    }
+  } catch {
+    // Tab closed before we could check — clean up
+    injectedTabs.delete(tabId);
+    return;
+  }
+
+  // Set or clean up DOM triggers for the tab's current URL so the
+  // content script receives correct selectors when it requests them.
+  maybeInjectDomTriggers(tabId);
+
+  try {
     await chrome.scripting.executeScript({
       target: { tabId },
       files: ['content-main.js'],
@@ -174,9 +205,7 @@ chrome.storage.onChanged.addListener((changes) => {
 
     for (const key of newKeys) {
       if (!oldSet.has(key)) {
-        const tabId = Number(key);
-        maybeInjectDomTriggers(tabId);
-        injectMonitor(tabId);
+        injectMonitor(Number(key));
       }
     }
     for (const key of oldKeys) {
@@ -193,7 +222,6 @@ chrome.storage.onChanged.addListener((changes) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'loading' && monitoredTabs[String(tabId)]) {
     removeInjectedTab(tabId);
-    maybeInjectDomTriggers(tabId);
   }
 
   if (changeInfo.status === 'complete' && monitoredTabs[String(tabId)]) {
