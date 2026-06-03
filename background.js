@@ -110,6 +110,11 @@ async function cleanupStaleMonitoredTabs() {
   }
 }
 
+// Test hook — allows integration tests to invoke cleanup without reloading
+if (typeof self !== 'undefined') {
+  self.__test_cleanupStaleMonitoredTabs = cleanupStaleMonitoredTabs;
+}
+
 // ---------------------------------------------------------------------------
 // Event listeners — registered synchronously at module evaluation time
 // ---------------------------------------------------------------------------

@@ -8,6 +8,8 @@ test.describe.serial('TC-INT-04–07: Storage Integrity', () => {
     await page.goto('https://example.com');
 
     const extId = await serviceWorker.evaluate(() => chrome.runtime.id);
+    expect(extId).toBeDefined();
+
     const popupPage = await context.newPage();
     await popupPage.goto(`chrome-extension://${extId}/popup.html`);
 
@@ -18,9 +20,10 @@ test.describe.serial('TC-INT-04–07: Storage Integrity', () => {
 
     await popupPage.close();
 
-    const storage = await getStorage(['monitoredTabs']);
-    const keys = Object.keys(storage.monitoredTabs ?? {});
-    expect(keys.length).toBeGreaterThan(0);
+    await expect.poll(async () => {
+      const s = await getStorage(['monitoredTabs']);
+      return Object.keys(s.monitoredTabs ?? {}).length;
+    }, { timeout: 3000 }).toBeGreaterThan(0);
   });
 
   test('TC-INT-05: monitoredTabs persists in storage across read/write cycle', async ({ serviceWorker, getStorage, clearStorage }) => {
@@ -44,6 +47,7 @@ test.describe.serial('TC-INT-04–07: Storage Integrity', () => {
       const tabs = await chrome.tabs.query({ url });
       return tabs[0]?.id;
     }, 'https://example.com/');
+    expect(tabId).toBeDefined();
 
     await serviceWorker.evaluate(
       (id) => chrome.storage.local.set({ monitoredTabs: { [String(id)]: { pattern: '' } } }),
@@ -70,6 +74,8 @@ test.describe.serial('TC-INT-04–07: Storage Integrity', () => {
       const tabs = await chrome.tabs.query({ url });
       return tabs.map(t => String(t.id));
     }, 'https://example.com/');
+    expect(liveId1).toBeDefined();
+    expect(liveId2).toBeDefined();
 
     const staleIds = { '99991': { pattern: '' }, '99992': { pattern: '' }, '99993': { pattern: '' } };
     const liveIds = { [liveId1]: { pattern: '' }, [liveId2]: { pattern: '' } };
@@ -79,20 +85,7 @@ test.describe.serial('TC-INT-04–07: Storage Integrity', () => {
     );
 
     await serviceWorker.evaluate(async () => {
-      const s = await chrome.storage.local.get(['monitoredTabs']);
-      const tabs = s.monitoredTabs ?? {};
-      const allTabs = await chrome.tabs.query({});
-      const liveIds = new Set(allTabs.map(t => t.id));
-      let changed = false;
-      for (const key of Object.keys(tabs)) {
-        if (!liveIds.has(Number(key))) {
-          delete tabs[key];
-          changed = true;
-        }
-      }
-      if (changed) {
-        await chrome.storage.local.set({ monitoredTabs: tabs });
-      }
+      await self.__test_cleanupStaleMonitoredTabs();
     });
 
     const storage = await getStorage(['monitoredTabs']);

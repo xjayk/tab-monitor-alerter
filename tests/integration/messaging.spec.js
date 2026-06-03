@@ -11,6 +11,7 @@ test.describe.serial('TC-INT-01–03: Background ↔ Content Script Messaging', 
       const tabs = await chrome.tabs.query({ url });
       return tabs[0]?.id;
     }, 'https://example.com/');
+    expect(tabId).toBeDefined();
 
     await serviceWorker.evaluate(
       (id) => chrome.storage.local.set({ monitoredTabs: { [String(id)]: { pattern: '' } } }),
@@ -37,6 +38,7 @@ test.describe.serial('TC-INT-01–03: Background ↔ Content Script Messaging', 
       const tabs = await chrome.tabs.query({ url });
       return tabs[0]?.id;
     }, 'https://example.com/');
+    expect(tabId).toBeDefined();
 
     await serviceWorker.evaluate(
       (id) => chrome.storage.local.set({ monitoredTabs: { [String(id)]: { pattern: '' } } }),
@@ -63,6 +65,7 @@ test.describe.serial('TC-INT-01–03: Background ↔ Content Script Messaging', 
       const tabs = await chrome.tabs.query({ url });
       return tabs[0]?.id;
     }, 'https://example.com/');
+    expect(tabId).toBeDefined();
 
     await serviceWorker.evaluate(
       (id) => chrome.storage.local.set({ monitoredTabs: { [String(id)]: { pattern: '' } } }),
