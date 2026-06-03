@@ -4,6 +4,10 @@ const DEBOUNCE_MS = 1000;
 const CLEANUP_DELAY_MS = 5000;
 const lastAlertTime = {};
 
+// Tracks the last title we saw per tab so onActivated can detect
+// whether a title actually changed while the tab was backgrounded.
+const lastKnownTitle = {};
+
 let badgeInterval = null;
 let isRed = false;
 let alertingTabId = null;
@@ -113,9 +117,14 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// 1. Listen for title updates fired by Chrome for active/file:// tabs
+// 1. Listen for title updates fired by Chrome for active/file:// tabs.
+//    Records every seen title in lastKnownTitle so the onActivated
+//    catch-up can detect genuine changes.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!changeInfo.title) return;
+  // Always record the latest title regardless of monitoring state.
+  lastKnownTitle[tabId] = changeInfo.title;
+
   const monitored = !!monitoredTabs[String(tabId)];
   const nonInjectable = isNonInjectableUrl(tab?.url);
   console.log(
@@ -139,7 +148,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // (rendering process isolation / tab suspension). Title changes on those tabs
 // are only propagated once the tab becomes active. By reading the current
 // title via chrome.tabs.get at activation time we catch any title change that
-// happened while the tab was in the background and alert immediately.
+// happened while the tab was in the background.
+//
+// We only alert if the title CHANGED relative to the last-known value.
+// This prevents spurious alerts when:
+//   - A tab is simply focused (no title change occurred)
+//   - The popup focuses the alerting tab to navigate to it (TC-INT-09)
+// On first activation (no lastKnownTitle entry) we record the title without
+// alerting, so monitoring a tab for the first time does not auto-alert.
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   const config = monitoredTabs[String(tabId)];
   if (!config) return;
@@ -147,8 +163,24 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
   chrome.tabs.get(tabId, (tab) => {
     if (chrome.runtime.lastError || !tab || !tab.title) return;
     if (isNonInjectableUrl(tab.url)) return;
-    console.log('[tab-alerter/bg] onActivated catch-up check | tabId:', tabId, '| title:', tab.title);
-    if (!titleMatchesPattern(tab.title, config.pattern)) return;
+
+    const prev = lastKnownTitle[tabId];
+    const current = tab.title;
+    lastKnownTitle[tabId] = current;
+
+    if (prev === undefined) {
+      // First time we see this tab — record title but don't alert.
+      console.log('[tab-alerter/bg] onActivated first sight | tabId:', tabId, '| title:', current);
+      return;
+    }
+
+    if (prev === current) {
+      console.log('[tab-alerter/bg] onActivated no title change | tabId:', tabId, '| title:', current);
+      return;
+    }
+
+    console.log('[tab-alerter/bg] onActivated title changed! | tabId:', tabId, '| prev:', prev, '| current:', current);
+    if (!titleMatchesPattern(current, config.pattern)) return;
     triggerAlert(tabId);
   });
 });
@@ -215,6 +247,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     chrome.storage.local.set({ monitoredTabs: updated }).catch(console.error);
   }
   delete lastAlertTime[tabId];
+  delete lastKnownTitle[tabId];
 });
 
 function triggerAlert(tabId) {
