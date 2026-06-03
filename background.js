@@ -1,19 +1,25 @@
+import { shouldDebounce, titleMatchesPattern, migrateMonitoredTabs } from './src/utils.js';
+
+const DEBOUNCE_MS = 1000;
+const lastAlertTime = {};
+
 let badgeInterval = null;
 let isRed = false;
 let alertingTabId = null;
 let offscreenCreating = null;
 
-// Track monitored tabs in memory (sync with storage)
-let monitoredTabs = new Set();
+// Track monitored tabs as a map of tabId -> { pattern: '' }.
+// Storage shape: monitoredTabs = { "123": { pattern: "" }, "456": { pattern: "" } }
+let monitoredTabs = {};
 
 // Top-level await: suspend SW module execution here until storage is read.
-// This is intentional — all event listeners below are registered AFTER this
-// resolves, guaranteeing monitoredTabs is populated before any event can fire.
-// MV3 service workers fully support top-level await.
-const res = await chrome.storage.local.get(['monitoredTabs']);
-if (res.monitoredTabs) {
-  monitoredTabs = new Set(res.monitoredTabs);
+let res = {};
+try {
+  res = await chrome.storage.local.get(['monitoredTabs']);
+} catch (err) {
+  console.error('Failed to read monitoredTabs from storage:', err);
 }
+monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
 
 // ---------------------------------------------------------------------------
 // Default DOM trigger selectors per hostname.
@@ -82,19 +88,22 @@ function removeDomTriggers(tabId) {
 // Update memory when popup changes storage
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.monitoredTabs) {
-    // Fallback to [] guards against newValue being undefined/null when
-    // the storage key is cleared entirely.
-    const newTabs = new Set(changes.monitoredTabs.newValue || []);
-    // Inject domTriggers for any newly added tabs
-    for (const tabId of newTabs) {
-      if (!monitoredTabs.has(tabId)) {
-        maybeInjectDomTriggers(tabId);
+    const raw = changes.monitoredTabs.newValue;
+    const newTabs = raw && typeof raw === 'object' ? raw : {};
+    const oldKeys = Object.keys(monitoredTabs);
+    const newKeys = Object.keys(newTabs);
+
+    const oldSet = new Set(oldKeys);
+    const newSet = new Set(newKeys);
+
+    for (const key of newKeys) {
+      if (!oldSet.has(key)) {
+        maybeInjectDomTriggers(Number(key));
       }
     }
-    // Clean up domTriggers for tabs that were just removed from monitoring
-    for (const tabId of monitoredTabs) {
-      if (!newTabs.has(tabId)) {
-        removeDomTriggers(tabId);
+    for (const key of oldKeys) {
+      if (!newSet.has(key)) {
+        removeDomTriggers(Number(key));
       }
     }
     monitoredTabs = newTabs;
@@ -103,26 +112,29 @@ chrome.storage.onChanged.addListener((changes) => {
 
 // 1. Listen for Title Updates
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.title && monitoredTabs.has(tabId)) {
-    triggerAlert(tabId);
-  }
+  if (!changeInfo.title) return;
+  const config = monitoredTabs[String(tabId)];
+  if (!config) return;
+  if (!titleMatchesPattern(changeInfo.title, config.pattern)) return;
+  triggerAlert(tabId);
 });
 
 // 2. Listen for Web Notification intercepts and Popup Actions
 chrome.runtime.onMessage.addListener((message, sender) => {
-  if (message.type === 'TRIGGER_ALERT' && sender.tab && monitoredTabs.has(sender.tab.id)) {
+  if (message.type === 'TRIGGER_ALERT' && sender.tab && monitoredTabs[String(sender.tab.id)]) {
     triggerAlert(sender.tab.id);
   } else if (message.type === 'CLEAR_ALERT') {
     clearAlert();
   } else if (message.type === 'MONITOR_TAB' && !sender.tab) {
     if (typeof message.tabId === 'number') {
-      monitoredTabs.add(message.tabId);
-      chrome.storage.local.set({ monitoredTabs: Array.from(monitoredTabs) }).catch(console.error);
+      const updated = { ...monitoredTabs, [String(message.tabId)]: { pattern: '' } };
+      chrome.storage.local.set({ monitoredTabs: updated }).catch(console.error);
     }
   } else if (message.type === 'UNMONITOR_TAB' && !sender.tab) {
     if (typeof message.tabId === 'number') {
-      monitoredTabs.delete(message.tabId);
-      chrome.storage.local.set({ monitoredTabs: Array.from(monitoredTabs) }).catch(console.error);
+      const updated = { ...monitoredTabs };
+      delete updated[String(message.tabId)];
+      chrome.storage.local.set({ monitoredTabs: updated }).catch(console.error);
     }
   } else if (message.type === 'AUDIO_BLOCKED') {
     chrome.action.setBadgeText({ text: '??' });
@@ -134,19 +146,25 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       chrome.action.setBadgeText({ text: '' });
     }
   }
+  return false;
 });
 
 // Clean up if the alerting tab is closed
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === alertingTabId) clearAlert();
-  if (monitoredTabs.has(tabId)) {
-    monitoredTabs.delete(tabId);
-    removeDomTriggers(tabId);
-    chrome.storage.local.set({ monitoredTabs: Array.from(monitoredTabs) });
+  const key = String(tabId);
+  if (monitoredTabs[key]) {
+    const updated = { ...monitoredTabs };
+    delete updated[key];
+    chrome.storage.local.set({ monitoredTabs: updated }).catch(console.error);
   }
+  delete lastAlertTime[tabId];
 });
 
 function triggerAlert(tabId) {
+  if (shouldDebounce(lastAlertTime, tabId, Date.now(), DEBOUNCE_MS)) return;
+  lastAlertTime[tabId] = Date.now();
+
   if (alertingTabId === tabId) return; // Already alerting for this tab
 
   alertingTabId = tabId;
