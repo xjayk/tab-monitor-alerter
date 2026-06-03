@@ -17,6 +17,10 @@ const DEFAULT_DOM_TRIGGERS = {
   'www.perplexity.ai': ['button[aria-label="Approve"]'],
 };
 
+// Tracks tab IDs into which content scripts have been injected.
+// Used to avoid duplicate injection and to know when to re-inject on navigation.
+const injectedTabs = new Set();
+
 function isNonInjectableUrl(url) {
   if (!url) return false;
   return (
@@ -39,6 +43,14 @@ async function init() {
   await cleanupStaleMonitoredTabs();
 
   console.log('[tab-alerter/bg] init complete, monitoredTabs:', JSON.stringify(monitoredTabs));
+
+  // Re-inject content-main.js into each surviving monitored tab.
+  // content-isolated.js is always injected statically via manifest.json,
+  // but content-main.js (MAIN world) may need to be restored after a
+  // navigation or SW restart.
+  for (const key of Object.keys(monitoredTabs)) {
+    injectMonitor(Number(key)).catch(console.error);
+  }
 }
 
 void init();
@@ -49,11 +61,23 @@ function maybeInjectDomTriggers(tabId) {
     try {
       const host = new URL(tab.url).hostname;
       const selectors = DEFAULT_DOM_TRIGGERS[host];
-      if (!selectors) return;
 
       chrome.storage.local.get(['tabDomTriggers'], (result) => {
         if (chrome.runtime.lastError) return;
         const current = result.tabDomTriggers || {};
+
+        if (!selectors) {
+          // No triggers for this host — clean up stale entry from a
+          // previous navigation so the content script does not receive
+          // selectors that no longer apply.
+          if (tabId in current) {
+            const updated = { ...current };
+            delete updated[tabId];
+            chrome.storage.local.set({ tabDomTriggers: updated });
+          }
+          return;
+        }
+
         chrome.storage.local.set({
           tabDomTriggers: { ...current, [tabId]: selectors },
         });
@@ -82,7 +106,7 @@ async function cleanupStaleMonitoredTabs() {
   const liveIds = new Set();
 
   for (const tab of allTabs) {
-    if (tab.id === null) continue;
+    if (tab.id === null || tab.id === undefined) continue;
     liveIds.add(tab.id);
     // Seed catch-up baseline so onActivated can detect genuine changes.
     if (tab.title) {
@@ -106,6 +130,55 @@ async function cleanupStaleMonitoredTabs() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Content script injection
+// ---------------------------------------------------------------------------
+
+async function injectMonitor(tabId) {
+  if (injectedTabs.has(tabId)) return;
+  injectedTabs.add(tabId);
+
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status !== 'complete') {
+      // Not fully loaded yet — the onUpdated 'complete' handler will retry.
+      // Must clean up injectedTabs so the retry is not blocked.
+      injectedTabs.delete(tabId);
+      return;
+    }
+    if (isNonInjectableUrl(tab.url)) {
+      return;
+    }
+  } catch {
+    // Tab closed before we could check — clean up
+    injectedTabs.delete(tabId);
+    return;
+  }
+
+  // Set or clean up DOM triggers for the tab's current URL so the
+  // content script receives correct selectors when it requests them.
+  maybeInjectDomTriggers(tabId);
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content-main.js'],
+      world: 'MAIN',
+    });
+  } catch (err) {
+    console.error(`Failed to inject content-main.js into tab ${tabId}:`, err.message);
+    injectedTabs.delete(tabId);
+  }
+}
+
+function removeInjectedTab(tabId) {
+  injectedTabs.delete(tabId);
+}
+
+// ---------------------------------------------------------------------------
+// Event listeners
+// ---------------------------------------------------------------------------
+
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.monitoredTabs) {
     const raw = changes.monitoredTabs.newValue;
@@ -117,21 +190,34 @@ chrome.storage.onChanged.addListener((changes) => {
     const newSet = new Set(newKeys);
 
     for (const key of newKeys) {
-      if (!oldSet.has(key)) maybeInjectDomTriggers(Number(key));
+      if (!oldSet.has(key)) {
+        injectMonitor(Number(key));
+      }
     }
     for (const key of oldKeys) {
-      if (!newSet.has(key)) removeDomTriggers(Number(key));
+      if (!newSet.has(key)) {
+        removeDomTriggers(Number(key));
+        removeInjectedTab(Number(key));
+      }
     }
     monitoredTabs = newTabs;
     console.log('[tab-alerter/bg] monitoredTabs updated:', JSON.stringify(monitoredTabs));
   }
 });
 
-// 1. Listen for title updates fired by Chrome.
+// 1. Listen for tab updates — handles both navigation/re-injection and title changes.
 //    Skips the active tab — the user is already looking at it.
 //    Records every seen title in lastKnownTitle so onActivated can
 //    detect genuine background title changes.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'loading' && monitoredTabs[String(tabId)]) {
+    removeInjectedTab(tabId);
+  }
+
+  if (changeInfo.status === 'complete' && monitoredTabs[String(tabId)]) {
+    injectMonitor(tabId);
+  }
+
   if (!changeInfo.title) return;
   // Always record the latest title regardless of monitoring or active state.
   lastKnownTitle[tabId] = changeInfo.title;
@@ -192,16 +278,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.warn('[tab-alerter/bg] TRIGGER_ALERT received but tab', tabId, 'is NOT in monitoredTabs.');
       return false;
     }
-    // Suppress if the tab is currently active — user is already there.
-    chrome.tabs.get(tabId, (tab) => {
-      if (chrome.runtime.lastError || !tab) return;
-      if (tab.active) {
-        console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (tab is active) | tabId:', tabId);
-        return;
+    (async () => {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        if (tab?.active) {
+          console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (tab is active) | tabId:', tabId);
+          return;
+        }
+        console.log('[tab-alerter/bg] TRIGGER_ALERT accepted for tab:', tabId);
+        triggerAlert(tabId);
+      } catch {
+        // Tab closed before lookup — ignore.
       }
-      console.log('[tab-alerter/bg] TRIGGER_ALERT accepted for tab:', tabId);
-      triggerAlert(tabId);
-    });
+    })();
 
   } else if (message.type === 'CLEAR_ALERT') {
     clearAlert();
@@ -252,9 +341,14 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     delete updated[key];
     chrome.storage.local.set({ monitoredTabs: updated }).catch(console.error);
   }
+  removeInjectedTab(tabId);
   delete lastAlertTime[tabId];
   delete lastKnownTitle[tabId];
 });
+
+// ---------------------------------------------------------------------------
+// Alert logic
+// ---------------------------------------------------------------------------
 
 function triggerAlert(tabId) {
   const debounced = shouldDebounce(lastAlertTime, tabId, Date.now(), DEBOUNCE_MS);

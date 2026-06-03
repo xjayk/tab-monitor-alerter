@@ -1,6 +1,7 @@
 // Post a sentinel so test pages can detect that the content script was injected.
 console.log('[tab-alerter/isolated] script loaded, posting CONTENT_SCRIPT_READY');
-window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, '*');
+const targetOrigin = (window.location.origin === 'null' || window.location.protocol === 'file:') ? '*' : window.location.origin;
+window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, targetOrigin);
 
 window.addEventListener('message', (event) => {
   // Log EVERY message before any guard.
@@ -46,7 +47,7 @@ window.addEventListener('message', (event) => {
       }
       console.log('[tab-alerter/isolated] GET_DOM_TRIGGERS response:', selectors);
       if (Array.isArray(selectors) && selectors.length > 0) {
-        window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors }, '*');
+        window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors }, targetOrigin);
       }
     });
   }
