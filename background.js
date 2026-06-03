@@ -139,12 +139,12 @@ async function injectMonitor(tabId) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ['content-main.js'],
-      world: 'MAIN',
+      files: ['content-isolated.js'],
     });
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ['content-isolated.js'],
+      files: ['content-main.js'],
+      world: 'MAIN',
     });
   } catch (err) {
     console.error(`Failed to inject content scripts into tab ${tabId}:`, err.message);
@@ -190,6 +190,10 @@ chrome.storage.onChanged.addListener((changes) => {
 
 // 1. Listen for tab updates (navigation completion, title changes)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'loading' && monitoredTabs[String(tabId)]) {
+    removeInjectedTab(tabId);
+  }
+
   if (changeInfo.status === 'complete' && monitoredTabs[String(tabId)]) {
     injectMonitor(tabId);
   }
