@@ -13,7 +13,12 @@ let offscreenCreating = null;
 let monitoredTabs = {};
 
 // Top-level await: suspend SW module execution here until storage is read.
-const res = await chrome.storage.local.get(['monitoredTabs']);
+let res = {};
+try {
+  res = await chrome.storage.local.get(['monitoredTabs']);
+} catch (err) {
+  console.error('Failed to read monitoredTabs from storage:', err);
+}
 monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
 
 // ---------------------------------------------------------------------------
@@ -122,13 +127,14 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     clearAlert();
   } else if (message.type === 'MONITOR_TAB' && !sender.tab) {
     if (typeof message.tabId === 'number') {
-      monitoredTabs[String(message.tabId)] = { pattern: '' };
-      chrome.storage.local.set({ monitoredTabs }).catch(console.error);
+      const updated = { ...monitoredTabs, [String(message.tabId)]: { pattern: '' } };
+      chrome.storage.local.set({ monitoredTabs: updated }).catch(console.error);
     }
   } else if (message.type === 'UNMONITOR_TAB' && !sender.tab) {
     if (typeof message.tabId === 'number') {
-      delete monitoredTabs[String(message.tabId)];
-      chrome.storage.local.set({ monitoredTabs }).catch(console.error);
+      const updated = { ...monitoredTabs };
+      delete updated[String(message.tabId)];
+      chrome.storage.local.set({ monitoredTabs: updated }).catch(console.error);
     }
   }
   return false;
@@ -139,9 +145,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === alertingTabId) clearAlert();
   const key = String(tabId);
   if (monitoredTabs[key]) {
-    delete monitoredTabs[key];
-    removeDomTriggers(tabId);
-    chrome.storage.local.set({ monitoredTabs }).catch(console.error);
+    const updated = { ...monitoredTabs };
+    delete updated[key];
+    chrome.storage.local.set({ monitoredTabs: updated }).catch(console.error);
   }
   delete lastAlertTime[tabId];
 });

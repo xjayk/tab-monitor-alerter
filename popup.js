@@ -52,8 +52,10 @@ document.addEventListener('DOMContentLoaded', () => {
         checkbox.type = 'checkbox';
         checkbox.className = 'toggle';
         checkbox.checked = !!config;
+        patternInput.disabled = !checkbox.checked;
 
         function persist() {
+          patternInput.disabled = !checkbox.checked;
           if (checkbox.checked) {
             monitoredTabsObj[key] = { pattern: patternInput.value };
           } else {
