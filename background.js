@@ -24,11 +24,16 @@ const DEFAULT_DOM_TRIGGERS = {
  * Returns true for URLs where Chrome does not allow content script injection
  * and therefore the extension cannot meaningfully monitor the tab.
  *
+ * Note: a missing/empty URL (can occur when the SW wakes and onUpdated fires
+ * before the tab object is fully hydrated) is treated as INJECTABLE (returns
+ * false) so we do not silently drop title-change alerts on real https:// tabs.
+ * Only explicitly non-injectable schemes are blocked.
+ *
  * @param {string|undefined} url
  * @returns {boolean}
  */
 function isNonInjectableUrl(url) {
-  if (!url) return true;
+  if (!url) return false; // Unknown URL — do not block; monitoredTabs gate still applies
   return (
     url.startsWith('chrome://') ||
     url.startsWith('chrome-extension://') ||
@@ -154,9 +159,9 @@ chrome.storage.onChanged.addListener((changes) => {
 // 1. Listen for title updates
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!changeInfo.title) return;
-  // Ignore title changes on non-injectable URLs (chrome://, chrome-extension://,
-  // about:) to prevent spurious alerts when the extensions page navigates or
-  // reloads. Content scripts cannot run on these pages.
+  // Block explicitly non-injectable schemes. A missing/empty tab.url is NOT
+  // blocked — Chrome can fire onUpdated with tab.url temporarily absent when
+  // the service worker wakes from dormancy, and we must not drop those events.
   if (isNonInjectableUrl(tab?.url)) return;
   const config = monitoredTabs[String(tabId)];
   if (!config) return;

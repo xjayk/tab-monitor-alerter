@@ -1,3 +1,8 @@
+// Post a sentinel so test pages (and other tooling) can detect that the
+// content script was successfully injected. Sent before any message listener
+// is registered so it always fires on injection.
+window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, '*');
+
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   if (event.origin !== window.location.origin) return;
