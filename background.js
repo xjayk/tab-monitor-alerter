@@ -14,6 +14,7 @@ const res = await chrome.storage.local.get(['monitoredTabs']);
 if (res.monitoredTabs) {
   monitoredTabs = new Set(res.monitoredTabs);
 }
+await cleanupStaleMonitoredTabs();
 
 // ---------------------------------------------------------------------------
 // Default DOM trigger selectors per hostname.
@@ -79,6 +80,31 @@ function removeDomTriggers(tabId) {
   });
 }
 
+/**
+ * Cross-reference monitored tab IDs against currently open tabs and remove
+ * any stale entries (e.g. from a previous browser session where tabs were
+ * closed while the extension was not running). This prevents orphaned IDs
+ * from accumulating indefinitely.
+ */
+async function cleanupStaleMonitoredTabs() {
+  if (monitoredTabs.size === 0) return;
+
+  const allTabs = await chrome.tabs.query({});
+  const liveIds = new Set(allTabs.map(t => t.id));
+
+  let changed = false;
+  for (const tabId of monitoredTabs) {
+    if (!liveIds.has(tabId)) {
+      monitoredTabs.delete(tabId);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await chrome.storage.local.set({ monitoredTabs: Array.from(monitoredTabs) });
+  }
+}
+
 // Update memory when popup changes storage
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.monitoredTabs) {
@@ -101,8 +127,33 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// 1. Listen for Title Updates
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+// 1. Listen for Title Updates and Tab Restoration (from discard)
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, _tab) => {
+  // Re-inject content scripts when a monitored tab is restored from discard.
+  // Chrome's Memory Saver can discard background tabs, destroying content
+  // scripts. The changeInfo.discarded field is present only when the discarded
+  // state actually transitions (false = restored, true = discarded).
+  if (changeInfo.discarded === false && monitoredTabs.has(tabId)) {
+    Promise.allSettled([
+      chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content-main.js'],
+        world: 'MAIN',
+      }),
+      chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content-isolated.js'],
+      }),
+    ]).then(results => {
+      for (const r of results) {
+        if (r.status === 'rejected') {
+          console.warn('Failed to re-inject content scripts into restored tab', tabId, r.reason);
+        }
+      }
+    });
+  }
+
+  // Alert on title changes for monitored tabs
   if (changeInfo.title && monitoredTabs.has(tabId)) {
     triggerAlert(tabId);
   }
