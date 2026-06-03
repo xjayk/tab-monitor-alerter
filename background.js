@@ -113,6 +113,7 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
+// 1. Listen for title updates fired by Chrome for active/file:// tabs
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!changeInfo.title) return;
   const monitored = !!monitoredTabs[String(tabId)];
@@ -132,6 +133,27 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   triggerAlert(tabId);
 });
 
+// 2. Catch-up check on tab activation.
+//
+// Chrome suppresses tabs.onUpdated title events for background https:// tabs
+// (rendering process isolation / tab suspension). Title changes on those tabs
+// are only propagated once the tab becomes active. By reading the current
+// title via chrome.tabs.get at activation time we catch any title change that
+// happened while the tab was in the background and alert immediately.
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  const config = monitoredTabs[String(tabId)];
+  if (!config) return;
+
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab || !tab.title) return;
+    if (isNonInjectableUrl(tab.url)) return;
+    console.log('[tab-alerter/bg] onActivated catch-up check | tabId:', tabId, '| title:', tab.title);
+    if (!titleMatchesPattern(tab.title, config.pattern)) return;
+    triggerAlert(tabId);
+  });
+});
+
+// 3. Listen for web notification intercepts, popup actions, and content script requests
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log(
     '[tab-alerter/bg] message received:',
