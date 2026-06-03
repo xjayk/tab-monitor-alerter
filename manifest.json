@@ -12,11 +12,20 @@
   "action": {
     "default_popup": "popup.html"
   },
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "content_scripts": [
+    {
+      "matches": ["<all_urls>", "file://*/*"],
+      "js": ["content-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
     {
       "matches": ["<all_urls>", "file://*/*"],
       "js": ["content-isolated.js"],

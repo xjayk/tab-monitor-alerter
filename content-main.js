@@ -6,19 +6,26 @@
 
   // ---------------------------------------------------------------------------
   // 1. Notification API Proxy
-  // Intercepts window.Notification() calls (native browser notifications)
-  // and fires TAB_ALERTER_NOTIFICATION so the isolated script can relay it.
   // ---------------------------------------------------------------------------
   if (window.Notification) {
     const OriginalNotification = window.Notification;
 
+    console.log('[tab-alerter/main] installing Notification proxy');
+
     window.Notification = function (title, options) {
+// TODO: FIX! Broken by merge conflict resolution. <<<<<<< feat/dynamic-content-script-injection
       window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, window.location.origin);
+// TODO: FIX! Broken by merge conflict resolution. =======
+      console.log('[tab-alerter/main] Notification intercepted, posting TAB_ALERTER_NOTIFICATION. title:', title);
+      window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, '*');
+// TODO: FIX! Broken by merge conflict resolution. >>>>>>> trunk
       return new OriginalNotification(title, options);
     };
 
     Object.assign(window.Notification, OriginalNotification);
     window.Notification.prototype = OriginalNotification.prototype;
+  } else {
+    console.warn('[tab-alerter/main] window.Notification is not available on this page — proxy not installed');
   }
 
   // ---------------------------------------------------------------------------
@@ -38,19 +45,9 @@
   //   tabDomTriggers[tabId] = ['selector1', 'selector2']
   // ---------------------------------------------------------------------------
 
-  // Track already-alerted nodes to prevent duplicate alerts for the same element
   const alertedNodes = new WeakSet();
-
   let observer = null;
 
-  /**
-   * Test a single DOM node against pre-validated selectors.
-   * No try-catch here — selectors are guaranteed valid by initDomObserver.
-   * Keeping this path clean allows JS engines to optimise the hot callback.
-   *
-   * @param {Element} node
-   * @param {string[]} selectors - Pre-validated CSS selector strings
-   */
   function checkNode(node, selectors) {
     if (!(node instanceof Element)) return;
     if (alertedNodes.has(node)) return;
@@ -58,23 +55,24 @@
     for (const selector of selectors) {
       if (node.matches(selector) || node.querySelector(selector)) {
         alertedNodes.add(node);
+        
+// TODO: FIX! Broken by merge conflict resolution. <<<<<<< feat/dynamic-content-script-injection
         window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, window.location.origin);
         // Short-circuit: background debounce handles rapid DOM churn
+// TODO: FIX! Broken by merge conflict resolution. =======
+        console.log('[tab-alerter/main] DOM trigger matched selector:', selector, 'node:', node);
+        window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, '*');
+// TODO: FIX! Broken by merge conflict resolution. >>>>>>> trunk
+        
         return;
       }
     }
   }
 
-  /**
-   * Start observing document.body for DOM mutations.
-   *
-   * @param {string[]} selectors - Pre-validated CSS selector strings
-   */
   function startObserver(selectors) {
     if (!selectors || selectors.length === 0) return;
     if (!document.body) return;
     if (observer) {
-      // Already running (e.g. selectors updated) — restart cleanly
       observer.disconnect();
     }
 
@@ -90,6 +88,8 @@
       childList: true,
       subtree: true,
     });
+    
+// TODO: FIX! Broken by merge conflict resolution. <<<<<<< feat/dynamic-content-script-injection
 
     // Scan existing DOM for elements that already match — the observer only
     // fires for future mutations, so elements present at injection time would
@@ -107,23 +107,28 @@
    *   MAIN  →  DOM_OBSERVER_READY  →  ISOLATED
    *   MAIN  ←  SET_DOM_TRIGGERS   ←  ISOLATED (asks background, relays reply)
    */
+// TODO: FIX! Broken by merge conflict resolution. =======
+    console.log('[tab-alerter/main] DOM observer started with selectors:', selectors);
+  }
+
+// TODO: FIX! Broken by merge conflict resolution. >>>>>>> trunk
+ 
   function initDomObserver() {
-    // Listen for the storage reply from the ISOLATED world
     window.addEventListener('message', (event) => {
       if (event.source !== window) return;
       if (!event.data || event.data.type !== 'SET_DOM_TRIGGERS') return;
 
       const selectors = event.data.selectors;
+      console.log('[tab-alerter/main] received SET_DOM_TRIGGERS, selectors:', selectors);
       if (!Array.isArray(selectors) || selectors.length === 0) return;
 
-      // Pre-validate selectors here so checkNode hot path needs no try-catch
       const validSelectors = selectors.filter((selector) => {
         if (typeof selector !== 'string' || selector.trim() === '') return false;
         try {
           document.querySelector(selector);
           return true;
         } catch {
-          console.warn('[tab-monitor] Invalid domTrigger selector, skipping:', selector);
+          console.warn('[tab-alerter/main] invalid domTrigger selector, skipping:', selector);
           return false;
         }
       });
@@ -133,19 +138,22 @@
       }
     });
 
+// TODO: FIX! Broken by merge conflict resolution. <<<<<<< feat/dynamic-content-script-injection
     // Signal to the ISOLATED world that we are ready to receive triggers
     window.postMessage({ type: 'DOM_OBSERVER_READY' }, window.location.origin);
+// TODO: FIX! Broken by merge conflict resolution. =======
+    console.log('[tab-alerter/main] sending DOM_OBSERVER_READY');
+    window.postMessage({ type: 'DOM_OBSERVER_READY' }, '*');
+// TODO: FIX! Broken by merge conflict resolution. >>>>>>> trunk
+  
   }
 
-  // Wait for DOM to be ready before starting the observer to avoid catching
-  // static page-load elements as false positives
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initDomObserver, { once: true });
   } else {
     initDomObserver();
   }
 
-  // Disconnect observer on page unload to prevent memory leaks
   window.addEventListener('beforeunload', () => {
     if (observer) {
       observer.disconnect();

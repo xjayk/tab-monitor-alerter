@@ -46,6 +46,18 @@
     #notif-status.granted { background: #d4edda; color: #1a7f37; }
     #notif-status.denied  { background: #fde8e8; color: #b91c1c; }
     #notif-status.default { background: #fff8e1; color: #9a6700; }
+
+    /* Content script injection status banner */
+    #cs-status {
+      font-size: 0.85rem;
+      padding: 0.6rem 0.9rem;
+      border-radius: 6px;
+      margin-bottom: 1.5rem;
+      border: 1px solid;
+    }
+    #cs-status.checking { background: #fff8e1; color: #9a6700; border-color: #f0d080; }
+    #cs-status.ok       { background: #d4edda; color: #1a7f37; border-color: #a8d5b5; }
+    #cs-status.missing  { background: #fde8e8; color: #b91c1c; border-color: #f0a0a0; }
   </style>
 </head>
 <body>
@@ -55,6 +67,11 @@
     Load this page in a monitored tab to verify each alert trigger path.<br>
     Open the extension popup and enable monitoring for this tab before testing.
   </p>
+
+  <!-- Content-script injection status -->
+  <div id="cs-status" class="checking">
+    ⏳ Checking whether extension content scripts are injected…
+  </div>
 
   <!-- Options -->
   <div id="options">
@@ -125,6 +142,36 @@
     let injectedNode = null;
     let mutatingNode = null;
     let countdownTimer = null;
+
+    // -----------------------------------------------------------------------
+    // Content-script injection detection
+    // content-isolated.js posts CONTENT_SCRIPT_READY immediately on injection.
+    // If we don't see it within 1 second this page is running without content
+    // scripts — most likely because "Allow access to file URLs" is not enabled.
+    // -----------------------------------------------------------------------
+    const csStatus = document.getElementById('cs-status');
+    let csReady = false;
+
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) return;
+      if (event.data?.type === 'CONTENT_SCRIPT_READY') {
+        csReady = true;
+        csStatus.className = 'ok';
+        csStatus.textContent = '✅ Extension content scripts are injected — all test paths are active.';
+      }
+    });
+
+    setTimeout(() => {
+      if (!csReady) {
+        csStatus.className = 'missing';
+        csStatus.innerHTML =
+          '❌ <strong>Extension content scripts are NOT injected into this file:// page.</strong>' +
+          ' Paths 1 (Notification) and 2 (DOM observer) will not work.<br>' +
+          '&nbsp;&nbsp;→ Go to <code>chrome://extensions</code>, find <strong>Tab Monitor &amp; Alerter</strong>,' +
+          ' click <strong>Details</strong>, and enable <strong>"Allow access to file URLs"</strong>.' +
+          ' Then reload this page.';
+      }
+    }, 1000);
 
     // -----------------------------------------------------------------------
     // Options — persist across reloads
