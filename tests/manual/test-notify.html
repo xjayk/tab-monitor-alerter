@@ -109,7 +109,9 @@
 
     // Path 1
     function fireNotification() {
-      if (Notification.permission === 'default') {
+      if (Notification.permission === 'denied') {
+        log('Notification permission is denied. Please reset permissions in the browser address bar and try again.', 'warn');
+      } else if (Notification.permission === 'default') {
         Notification.requestPermission().then(p => {
           log(`Notification permission: ${p}`, p === 'granted' ? 'ok' : 'warn');
           if (p === 'granted') doFireNotification();
