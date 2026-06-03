@@ -1,6 +1,7 @@
 (function () {
   if (window.__tabMonitorMain) return;
   window.__tabMonitorMain = true;
+  const targetOrigin = (window.location.origin === 'null' || window.location.protocol === 'file:') ? '*' : window.location.origin;
 
   // ---------------------------------------------------------------------------
   // 1. Notification API Proxy
@@ -12,7 +13,7 @@
 
     window.Notification = function (title, options) {
       console.log('[tab-alerter/main] Notification intercepted, posting TAB_ALERTER_NOTIFICATION. title:', title);
-      window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, window.location.origin);
+      window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, targetOrigin);
       return new OriginalNotification(title, options);
     };
 
@@ -37,7 +38,7 @@
       if (node.matches(selector) || node.querySelector(selector)) {
         alertedNodes.add(node);
         console.log('[tab-alerter/main] DOM trigger matched selector:', selector, 'node:', node);
-        window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, window.location.origin);
+        window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, targetOrigin);
         return;
       }
     }
@@ -98,7 +99,7 @@
     });
 
     console.log('[tab-alerter/main] sending DOM_OBSERVER_READY');
-    window.postMessage({ type: 'DOM_OBSERVER_READY' }, window.location.origin);
+    window.postMessage({ type: 'DOM_OBSERVER_READY' }, targetOrigin);
   }
 
   if (document.readyState === 'loading') {
