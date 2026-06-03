@@ -145,6 +145,9 @@ async function injectMonitor(tabId) {
       injectedTabs.delete(tabId);
       return;
     }
+    if (isNonInjectableUrl(tab.url)) {
+      return;
+    }
   } catch {
     // Tab closed before we could check — clean up
     injectedTabs.delete(tabId);
@@ -263,15 +266,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.warn('[tab-alerter/bg] TRIGGER_ALERT received but tab', tabId, 'is NOT in monitoredTabs.');
       return false;
     }
-    chrome.tabs.get(tabId, (tab) => {
-      if (chrome.runtime.lastError || !tab) return;
-      if (tab.active) {
-        console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (tab is active) | tabId:', tabId);
-        return;
+    (async () => {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        if (tab?.active) {
+          console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (tab is active) | tabId:', tabId);
+          return;
+        }
+        console.log('[tab-alerter/bg] TRIGGER_ALERT accepted for tab:', tabId);
+        triggerAlert(tabId);
+      } catch (err) {
+        // Ignore or log error if tab was closed
       }
-      console.log('[tab-alerter/bg] TRIGGER_ALERT accepted for tab:', tabId);
-      triggerAlert(tabId);
-    });
+    })();
 
   } else if (message.type === 'CLEAR_ALERT') {
     clearAlert();
