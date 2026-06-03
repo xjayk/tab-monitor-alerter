@@ -51,9 +51,10 @@ test.describe('Alert Lifecycle (TC-INT-08–10)', () => {
 
     const extId = await serviceWorker.evaluate(() => chrome.runtime.id);
     const popupPage = await context.newPage();
-    await popupPage.goto(`chrome-extension://${extId}/popup.html`);
-
-    await popupPage.waitForEvent('close', { timeout: 5000 }).catch(() => {});
+    await Promise.all([
+      popupPage.waitForEvent('close', { timeout: 5000 }).catch(() => {}),
+      popupPage.goto(`chrome-extension://${extId}/popup.html`).catch(() => {}),
+    ]);
 
     await expect.poll(async () => {
       const storage = await getStorage(['alertingTabId']);
@@ -76,9 +77,10 @@ test.describe('Alert Lifecycle (TC-INT-08–10)', () => {
 
     const extId = await serviceWorker.evaluate(() => chrome.runtime.id);
     const popupPage = await context.newPage();
-    await popupPage.goto(`chrome-extension://${extId}/popup.html`);
-
-    await popupPage.waitForEvent('close', { timeout: 5000 }).catch(() => {});
+    await Promise.all([
+      popupPage.waitForEvent('close', { timeout: 5000 }).catch(() => {}),
+      popupPage.goto(`chrome-extension://${extId}/popup.html`).catch(() => {}),
+    ]);
 
     await expect.poll(async () => {
       const storage = await getStorage(['alertingTabId']);
