@@ -13,55 +13,51 @@ let offscreenCreating = null;
 // Storage shape: monitoredTabs = { "123": { pattern: "" }, "456": { pattern: "" } }
 let monitoredTabs = {};
 
-// Top-level await: suspend SW module execution here until storage is read.
-let res = {};
-try {
-  res = await chrome.storage.local.get(['monitoredTabs']);
-} catch (err) {
-  console.error('Failed to read monitoredTabs from storage:', err);
-}
-monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
-// Defer cleanup so it doesn't block SW startup or race against session
-// restore. setTimeout gives Chrome time to finish restoring tabs before
-// we cross-reference IDs.
-setTimeout(() => {
-  cleanupStaleMonitoredTabs().catch(console.error);
-}, CLEANUP_DELAY_MS);
-
 // ---------------------------------------------------------------------------
 // Default DOM trigger selectors per hostname.
-// When a tab on a known host is added to monitoredTabs, these selectors are
-// written to tabDomTriggers[tabId] so the MutationObserver in content-main.js
-// activates without any manual user configuration.
-//
-// Storage shape: tabDomTriggers = { [tabId: number]: string[] }
-// Each tab owns its own entry — no cross-tab overwrite possible.
-//
-// Selector confirmed via live MutationObserver log (issue #11).
 // ---------------------------------------------------------------------------
 const DEFAULT_DOM_TRIGGERS = {
   'www.perplexity.ai': ['button[aria-label="Approve"]'],
 };
 
+// ---------------------------------------------------------------------------
+// Init: read persisted state from storage.
+// Must be an async function — top-level await is not allowed in SW modules.
+// Event listeners are registered synchronously below (no events are missed).
+// ---------------------------------------------------------------------------
+async function init() {
+  let res = {};
+  try {
+    res = await chrome.storage.local.get(['monitoredTabs']);
+  } catch (err) {
+    console.error('Failed to read monitoredTabs from storage:', err);
+  }
+  monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
+
+  // Defer cleanup so it doesn't race against session restore.
+  setTimeout(() => {
+    cleanupStaleMonitoredTabs().catch(console.error);
+  }, CLEANUP_DELAY_MS);
+}
+
+void init();
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 /**
  * If the tab's URL matches a known host in DEFAULT_DOM_TRIGGERS, write
- * those selectors into tabDomTriggers[tabId] in storage so content-isolated.js
- * can deliver them to content-main.js via the SET_DOM_TRIGGERS handshake.
- * Safe to call on every tab registration — no-op for unknown hosts.
- *
- * @param {number} tabId
+ * those selectors into tabDomTriggers[tabId] in storage.
  */
 function maybeInjectDomTriggers(tabId) {
   chrome.tabs.get(tabId, (tab) => {
-    // Guard: tab may be undefined if it was closed between registration and
-    // this callback firing, or if chrome.tabs.get errors out.
     if (chrome.runtime.lastError || !tab || !tab.url) return;
     try {
       const host = new URL(tab.url).hostname;
       const selectors = DEFAULT_DOM_TRIGGERS[host];
       if (!selectors) return;
 
-      // Read, merge, write — preserves other tabs' entries
       chrome.storage.local.get(['tabDomTriggers'], (result) => {
         if (chrome.runtime.lastError) return;
         const current = result.tabDomTriggers || {};
@@ -78,8 +74,6 @@ function maybeInjectDomTriggers(tabId) {
 /**
  * Remove a tab's DOM trigger entry from storage when it is unmonitored
  * or closed, to avoid unbounded storage growth.
- *
- * @param {number} tabId
  */
 function removeDomTriggers(tabId) {
   chrome.storage.local.get(['tabDomTriggers'], (result) => {
@@ -94,9 +88,7 @@ function removeDomTriggers(tabId) {
 
 /**
  * Cross-reference monitored tab IDs against currently open tabs and remove
- * any stale entries (e.g. from a previous browser session where tabs were
- * closed while the extension was not running). This prevents orphaned IDs
- * from accumulating indefinitely.
+ * any stale entries from previous browser sessions.
  */
 async function cleanupStaleMonitoredTabs() {
   const keys = Object.keys(monitoredTabs);
@@ -118,7 +110,11 @@ async function cleanupStaleMonitoredTabs() {
   }
 }
 
-// Update memory when popup changes storage
+// ---------------------------------------------------------------------------
+// Event listeners — registered synchronously at module evaluation time
+// ---------------------------------------------------------------------------
+
+// Sync in-memory monitoredTabs when popup changes storage
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.monitoredTabs) {
     const raw = changes.monitoredTabs.newValue;
@@ -130,20 +126,16 @@ chrome.storage.onChanged.addListener((changes) => {
     const newSet = new Set(newKeys);
 
     for (const key of newKeys) {
-      if (!oldSet.has(key)) {
-        maybeInjectDomTriggers(Number(key));
-      }
+      if (!oldSet.has(key)) maybeInjectDomTriggers(Number(key));
     }
     for (const key of oldKeys) {
-      if (!newSet.has(key)) {
-        removeDomTriggers(Number(key));
-      }
+      if (!newSet.has(key)) removeDomTriggers(Number(key));
     }
     monitoredTabs = newTabs;
   }
 });
 
-// 1. Listen for Title Updates
+// 1. Listen for title updates
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (!changeInfo.title) return;
   const config = monitoredTabs[String(tabId)];
@@ -152,7 +144,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   triggerAlert(tabId);
 });
 
-// 2. Listen for Web Notification intercepts and Popup Actions
+// 2. Listen for web notification intercepts and popup actions
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (message.type === 'TRIGGER_ALERT' && sender.tab && monitoredTabs[String(sender.tab.id)]) {
     triggerAlert(sender.tab.id);
@@ -194,11 +186,15 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   delete lastAlertTime[tabId];
 });
 
+// ---------------------------------------------------------------------------
+// Alert logic
+// ---------------------------------------------------------------------------
+
 function triggerAlert(tabId) {
   if (shouldDebounce(lastAlertTime, tabId, Date.now(), DEBOUNCE_MS)) return;
   lastAlertTime[tabId] = Date.now();
 
-  if (alertingTabId === tabId) return; // Already alerting for this tab
+  if (alertingTabId === tabId) return;
 
   alertingTabId = tabId;
   chrome.storage.local.set({ alertingTabId });
@@ -236,7 +232,7 @@ async function playSound() {
     offscreenCreating = chrome.offscreen.createDocument({
       url: 'offscreen.html',
       reasons: ['AUDIO_PLAYBACK'],
-      justification: 'Play alert beep'
+      justification: 'Play alert beep',
     });
   }
 
