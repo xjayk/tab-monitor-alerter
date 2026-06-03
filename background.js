@@ -13,6 +13,10 @@ let offscreenCreating = null;
 // Storage shape: monitoredTabs = { "123": { pattern: "" }, "456": { pattern: "" } }
 let monitoredTabs = {};
 
+// Tracks tab IDs into which content scripts have been injected.
+// Used to avoid duplicate injection and to know when to re-inject on navigation.
+const injectedTabs = new Set();
+
 // ---------------------------------------------------------------------------
 // Default DOM trigger selectors per hostname.
 // ---------------------------------------------------------------------------
@@ -38,6 +42,14 @@ async function init() {
   setTimeout(() => {
     cleanupStaleMonitoredTabs().catch(console.error);
   }, CLEANUP_DELAY_MS);
+
+  // Inject content scripts into each monitored tab after cleanup.
+  // Content scripts persist across SW restarts in the page context, but we
+  // re-inject here to cover tabs that navigated while the SW was inactive.
+  // The guard in content-isolated.js prevents duplicate listener accumulation.
+  for (const key of Object.keys(monitoredTabs)) {
+    injectMonitor(Number(key)).catch(console.error);
+  }
 }
 
 void init();
@@ -111,6 +123,40 @@ async function cleanupStaleMonitoredTabs() {
 }
 
 // ---------------------------------------------------------------------------
+// Content script injection
+// ---------------------------------------------------------------------------
+
+/**
+ * Dynamically inject content scripts into a monitored tab.
+ * Only injects once per tab navigation — guards against duplicate calls
+ * via the injectedTabs Set. On navigation the entry is cleared so the
+ * scripts are re-injected into the new document.
+ */
+async function injectMonitor(tabId) {
+  if (injectedTabs.has(tabId)) return;
+  injectedTabs.add(tabId);
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content-main.js'],
+      world: 'MAIN',
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content-isolated.js'],
+    });
+  } catch (err) {
+    console.error(`Failed to inject content scripts into tab ${tabId}:`, err.message);
+    injectedTabs.delete(tabId);
+  }
+}
+
+function removeInjectedTab(tabId) {
+  injectedTabs.delete(tabId);
+}
+
+// ---------------------------------------------------------------------------
 // Event listeners — registered synchronously at module evaluation time
 // ---------------------------------------------------------------------------
 
@@ -126,17 +172,28 @@ chrome.storage.onChanged.addListener((changes) => {
     const newSet = new Set(newKeys);
 
     for (const key of newKeys) {
-      if (!oldSet.has(key)) maybeInjectDomTriggers(Number(key));
+      if (!oldSet.has(key)) {
+        const tabId = Number(key);
+        maybeInjectDomTriggers(tabId);
+        injectMonitor(tabId);
+      }
     }
     for (const key of oldKeys) {
-      if (!newSet.has(key)) removeDomTriggers(Number(key));
+      if (!newSet.has(key)) {
+        removeDomTriggers(Number(key));
+        removeInjectedTab(Number(key));
+      }
     }
     monitoredTabs = newTabs;
   }
 });
 
-// 1. Listen for title updates
+// 1. Listen for tab updates (navigation completion, title changes)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'complete' && monitoredTabs[String(tabId)]) {
+    injectMonitor(tabId);
+  }
+
   if (!changeInfo.title) return;
   const config = monitoredTabs[String(tabId)];
   if (!config) return;
@@ -183,6 +240,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     delete updated[key];
     chrome.storage.local.set({ monitoredTabs: updated }).catch(console.error);
   }
+  removeInjectedTab(tabId);
   delete lastAlertTime[tabId];
 });
 

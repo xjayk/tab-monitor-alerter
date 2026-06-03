@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "Monitors tabs for title changes and notifications.",
   "permissions": [
+    "scripting",
     "tabs",
     "storage",
     "offscreen"
@@ -14,18 +15,5 @@
   "background": {
     "service_worker": "background.js",
     "type": "module"
-  },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content-main.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content-isolated.js"],
-      "run_at": "document_start"
-    }
-  ]
+  }
 }
