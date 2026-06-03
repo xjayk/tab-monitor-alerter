@@ -4,11 +4,13 @@
   <meta charset="utf-8">
   <title>Tab Monitor & Alerter</title>
   <style>
-    body { font-family: sans-serif; width: 300px; padding: 10px; margin: 0; }
+    body { font-family: sans-serif; width: 340px; padding: 10px; margin: 0; }
     h3 { margin-top: 0; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
-    .tab-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #eee; }
-    .tab-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
-    .toggle { cursor: pointer; }
+    .tab-item { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px solid #eee; }
+    .tab-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+    .pattern-input { width: 65px; font-size: 11px; padding: 2px 4px; border: 1px solid #ccc; border-radius: 3px; flex-shrink: 0; }
+    .pattern-input:focus { outline: none; border-color: #888; }
+    .toggle { cursor: pointer; flex-shrink: 0; }
     .hidden { display: none; }
   </style>
 </head>
