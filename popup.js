@@ -52,7 +52,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const injectableTabs = tabs.filter(tab =>
         tab.url &&
         !tab.url.startsWith('chrome://') &&
-        !tab.url.startsWith('chrome-extension://')
+        !tab.url.startsWith('chrome-extension://') &&
+        !tab.url.startsWith('about:')
       );
 
       if (injectableTabs.length === 0) {

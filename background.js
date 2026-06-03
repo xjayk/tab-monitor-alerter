@@ -30,7 +30,11 @@ const DEFAULT_DOM_TRIGGERS = {
  */
 function isNonInjectableUrl(url) {
   if (!url) return true;
-  return url.startsWith('chrome://') || url.startsWith('chrome-extension://');
+  return (
+    url.startsWith('chrome://') ||
+    url.startsWith('chrome-extension://') ||
+    url.startsWith('about:')
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +158,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   // chrome:// and chrome-extension:// tabs cannot have content scripts injected.
   // Ignore title changes from them to prevent spurious alerts when the
   // extensions page navigates or reloads.
-  if (isNonInjectableUrl(tab.url)) return;
+  if (isNonInjectableUrl(tab?.url)) return;
   const config = monitoredTabs[String(tabId)];
   if (!config) return;
   if (!titleMatchesPattern(changeInfo.title, config.pattern)) return;
