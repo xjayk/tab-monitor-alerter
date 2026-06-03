@@ -23,7 +23,6 @@ const DEFAULT_DOM_TRIGGERS = {
 /**
  * Returns true for URLs where Chrome does not allow content script injection
  * and therefore the extension cannot meaningfully monitor the tab.
- * chrome:// and chrome-extension:// pages are excluded.
  *
  * @param {string|undefined} url
  * @returns {boolean}
@@ -155,9 +154,9 @@ chrome.storage.onChanged.addListener((changes) => {
 // 1. Listen for title updates
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!changeInfo.title) return;
-  // chrome:// and chrome-extension:// tabs cannot have content scripts injected.
-  // Ignore title changes from them to prevent spurious alerts when the
-  // extensions page navigates or reloads.
+  // Ignore title changes on non-injectable URLs (chrome://, chrome-extension://,
+  // about:) to prevent spurious alerts when the extensions page navigates or
+  // reloads. Content scripts cannot run on these pages.
   if (isNonInjectableUrl(tab?.url)) return;
   const config = monitoredTabs[String(tabId)];
   if (!config) return;
@@ -165,12 +164,25 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   triggerAlert(tabId);
 });
 
-// 2. Listen for web notification intercepts and popup actions
-chrome.runtime.onMessage.addListener((message, sender) => {
+// 2. Listen for web notification intercepts, popup actions, and content script requests
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'TRIGGER_ALERT' && sender.tab && monitoredTabs[String(sender.tab.id)]) {
     triggerAlert(sender.tab.id);
   } else if (message.type === 'CLEAR_ALERT') {
     clearAlert();
+  } else if (message.type === 'GET_DOM_TRIGGERS' && sender.tab) {
+    // Content scripts cannot access chrome.tabs, so they ask the background
+    // to resolve their tab ID (via sender.tab.id) and look up their selectors.
+    const tabId = sender.tab.id;
+    chrome.storage.local.get(['tabDomTriggers'], (result) => {
+      if (chrome.runtime.lastError) {
+        sendResponse([]);
+        return;
+      }
+      const allTriggers = result.tabDomTriggers || {};
+      sendResponse(allTriggers[tabId] || []);
+    });
+    return true; // Keep message channel open for async sendResponse
   } else if (message.type === 'MONITOR_TAB' && !sender.tab) {
     if (typeof message.tabId === 'number') {
       const updated = { ...monitoredTabs, [String(message.tabId)]: { pattern: '' } };

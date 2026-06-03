@@ -7,23 +7,14 @@ window.addEventListener('message', (event) => {
 
   } else if (event.data.type === 'DOM_OBSERVER_READY') {
     // MAIN world is ready to receive DOM trigger selectors.
-    // tabDomTriggers is keyed by tab ID to prevent cross-tab overwrites.
-    // chrome.tabs.getCurrent is used here (available in ISOLATED world content
-    // scripts on injectable pages; not available on chrome:// pages, which are
-    // excluded from the popup list and cannot be monitored).
-    if (!chrome.tabs?.getCurrent) return;
-    chrome.tabs.getCurrent((tab) => {
-      if (chrome.runtime.lastError || !tab) return;
-      const tabId = tab.id;
-
-      chrome.storage.local.get(['tabDomTriggers'], (result) => {
-        if (chrome.runtime.lastError) return;
-        const allTriggers = result.tabDomTriggers || {};
-        const selectors = allTriggers[tabId];
-        if (Array.isArray(selectors) && selectors.length > 0) {
-          window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors }, '*');
-        }
-      });
+    // chrome.tabs is not available in content scripts — the background
+    // script resolves the tab ID from sender.tab.id and reads storage
+    // on our behalf via the GET_DOM_TRIGGERS message.
+    chrome.runtime.sendMessage({ type: 'GET_DOM_TRIGGERS' }, (selectors) => {
+      if (chrome.runtime.lastError) return;
+      if (Array.isArray(selectors) && selectors.length > 0) {
+        window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors }, '*');
+      }
     });
   }
 });
