@@ -278,7 +278,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.warn('[tab-alerter/bg] TRIGGER_ALERT received but tab', tabId, 'is NOT in monitoredTabs.');
       return false;
     }
-// TODO: FIX! Broken by merge conflict resolution. <<<<<<< feat/dynamic-content-script-injection
     (async () => {
       try {
         const tab = await chrome.tabs.get(tabId);
@@ -288,22 +287,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         console.log('[tab-alerter/bg] TRIGGER_ALERT accepted for tab:', tabId);
         triggerAlert(tabId);
-      } catch (err) {
-        // Ignore or log error if tab was closed
+      } catch {
+        // Tab closed before lookup — ignore.
       }
     })();
-// TODO: FIX! Broken by merge conflict resolution. =======
-    // Suppress if the tab is currently active — user is already there.
-    chrome.tabs.get(tabId, (tab) => {
-      if (chrome.runtime.lastError || !tab) return;
-      if (tab.active) {
-        console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (tab is active) | tabId:', tabId);
-        return;
-      }
-      console.log('[tab-alerter/bg] TRIGGER_ALERT accepted for tab:', tabId);
-      triggerAlert(tabId);
-    });
-// TODO: FIX! Broken by merge conflict resolution. >>>>>>> trunk
 
   } else if (message.type === 'CLEAR_ALERT') {
     clearAlert();
