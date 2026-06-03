@@ -6,3 +6,5 @@ ignore_patterns:
   - "*.txt"
   - "*.rst"
   - "docs/**"
+
+
