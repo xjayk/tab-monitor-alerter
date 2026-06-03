@@ -4,12 +4,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (data.alertingTabId) {
       chrome.tabs.get(data.alertingTabId, (tab) => {
         if (chrome.runtime.lastError || !tab) {
-          // Tab is gone; clear stale state so popup isn't hijacked forever
           chrome.runtime.sendMessage({ type: 'CLEAR_ALERT' });
           window.close();
           return;
         }
-        // Tab is confirmed live — activate it and focus its window
         chrome.tabs.update(tab.id, { active: true });
         chrome.windows.update(tab.windowId, { focused: true });
         chrome.runtime.sendMessage({ type: 'CLEAR_ALERT' });
@@ -36,13 +34,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 3. Render standard UI if no alert is active
     document.getElementById('ui-container').classList.remove('hidden');
-    const monitoredTabs = new Set(data.monitoredTabs || []);
+
+    // monitoredTabs is stored as a dict: { "tabId": { pattern: "" } }
+    const raw = data.monitoredTabs;
+    const monitoredTabsObj = raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? { ...raw }
+      : {};
 
     chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT }, (tabs) => {
       const list = document.getElementById('tab-list');
       if (tabs.length === 0) list.innerHTML = '<p>No tabs found.</p>';
 
       tabs.forEach(tab => {
+        const key = String(tab.id);
+        const config = monitoredTabsObj[key];
+
         const item = document.createElement('div');
         item.className = 'tab-item';
 
@@ -51,30 +57,34 @@ document.addEventListener('DOMContentLoaded', () => {
         title.textContent = tab.title;
         title.title = tab.title;
 
+        const patternInput = document.createElement('input');
+        patternInput.type = 'text';
+        patternInput.className = 'pattern-input';
+        patternInput.placeholder = 'Regex';
+        patternInput.title = 'Alert only when title matches this regex (leave empty for any change)';
+        if (config) patternInput.value = config.pattern || '';
+
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.className = 'toggle';
-        checkbox.checked = monitoredTabs.has(tab.id);
+        checkbox.checked = !!config;
+        patternInput.disabled = !checkbox.checked;
 
-        checkbox.addEventListener('change', (e) => {
-          if (e.target.checked) {
-            monitoredTabs.add(tab.id);
+        function persist() {
+          patternInput.disabled = !checkbox.checked;
+          if (checkbox.checked) {
+            monitoredTabsObj[key] = { pattern: patternInput.value };
           } else {
-            monitoredTabs.delete(tab.id);
+            delete monitoredTabsObj[key];
           }
+          chrome.storage.local.set({ monitoredTabs: monitoredTabsObj }).catch(console.error);
+        }
 
-          // Write directly to storage — source of truth per AGENT.md.
-          // The background SW syncs its in-memory set via storage.onChanged;
-          // this avoids the MV3 race where a MONITOR_TAB message is silently
-          // dropped if the SW is not yet alive.
-          chrome.storage.local
-            .set({ monitoredTabs: Array.from(monitoredTabs) })
-            .catch((error) => {
-              console.error('Failed to persist monitoredTabs:', error);
-            });
-        });
+        checkbox.addEventListener('change', persist);
+        patternInput.addEventListener('change', persist);
 
         item.appendChild(title);
+        item.appendChild(patternInput);
         item.appendChild(checkbox);
         list.appendChild(item);
       });
