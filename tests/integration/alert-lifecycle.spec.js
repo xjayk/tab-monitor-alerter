@@ -20,8 +20,10 @@ test.describe('Alert Lifecycle (TC-INT-08–10)', () => {
       tabId
     );
 
-    await page.evaluate("document.title = 'New Title — Alert Me'");
+    await page.evaluate(() => { document.title = 'New Title — Alert Me'; });
 
+    // Single poll asserts both presence and correct value atomically,
+    // eliminating the TOCTOU gap of a separate poll-then-assert pattern.
     await expect.poll(async () => {
       const storage = await getStorage(['alertingTabId']);
       return storage.alertingTabId;
