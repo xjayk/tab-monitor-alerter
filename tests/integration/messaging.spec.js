@@ -18,6 +18,10 @@ test.describe.serial('TC-INT-01–03: Background ↔ Content Script Messaging', 
       tabId
     );
 
+    // Push the monitored tab into the background so active-tab suppression
+    // does not prevent the alert from firing.
+    await context.newPage();
+
     await page.evaluate(() => {
       window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, '*');
     });
@@ -71,6 +75,10 @@ test.describe.serial('TC-INT-01–03: Background ↔ Content Script Messaging', 
       (id) => chrome.storage.local.set({ monitoredTabs: { [String(id)]: { pattern: '' } } }),
       tabId
     );
+
+    // Push the monitored tab into the background so active-tab suppression
+    // does not prevent the alert from firing.
+    await context.newPage();
 
     await page.evaluate(() => {
       for (let i = 0; i < 10; i++) {

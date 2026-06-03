@@ -1,7 +1,6 @@
 import { shouldDebounce, titleMatchesPattern, migrateMonitoredTabs } from './src/utils.js';
 
 const DEBOUNCE_MS = 1000;
-const CLEANUP_DELAY_MS = 5000;
 const lastAlertTime = {};
 
 // Tracks the last title we saw per tab so onActivated can detect
@@ -35,11 +34,11 @@ async function init() {
     console.error('[tab-alerter/bg] Failed to read monitoredTabs from storage:', err);
   }
   monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
-  console.log('[tab-alerter/bg] init complete, monitoredTabs:', JSON.stringify(monitoredTabs));
 
-  setTimeout(() => {
-    cleanupStaleMonitoredTabs().catch(console.error);
-  }, CLEANUP_DELAY_MS);
+  // Prune stale tab IDs and seed lastKnownTitle before any listener fires.
+  await cleanupStaleMonitoredTabs();
+
+  console.log('[tab-alerter/bg] init complete, monitoredTabs:', JSON.stringify(monitoredTabs));
 }
 
 void init();
@@ -78,10 +77,20 @@ function removeDomTriggers(tabId) {
 
 async function cleanupStaleMonitoredTabs() {
   const keys = Object.keys(monitoredTabs);
-  if (keys.length === 0) return;
-
+  // Always query all tabs to seed lastKnownTitle, even if no cleanup needed.
   const allTabs = await chrome.tabs.query({});
-  const liveIds = new Set(allTabs.map(t => t.id));
+  const liveIds = new Set();
+
+  for (const tab of allTabs) {
+    if (tab.id === null) continue;
+    liveIds.add(tab.id);
+    // Seed catch-up baseline so onActivated can detect genuine changes.
+    if (tab.title) {
+      lastKnownTitle[tab.id] = tab.title;
+    }
+  }
+
+  if (keys.length === 0) return;
 
   let changed = false;
   for (const key of keys) {
@@ -93,6 +102,7 @@ async function cleanupStaleMonitoredTabs() {
 
   if (changed) {
     await chrome.storage.local.set({ monitoredTabs });
+    console.log('[tab-alerter/bg] cleaned up stale monitoredTabs, remaining:', JSON.stringify(monitoredTabs));
   }
 }
 
@@ -117,45 +127,37 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// 1. Listen for title updates fired by Chrome for active/file:// tabs.
-//    Records every seen title in lastKnownTitle so the onActivated
-//    catch-up can detect genuine changes.
+// 1. Listen for title updates fired by Chrome.
+//    Skips the active tab — the user is already looking at it.
+//    Records every seen title in lastKnownTitle so onActivated can
+//    detect genuine background title changes.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!changeInfo.title) return;
-  // Always record the latest title regardless of monitoring state.
+  // Always record the latest title regardless of monitoring or active state.
   lastKnownTitle[tabId] = changeInfo.title;
 
-  const monitored = !!monitoredTabs[String(tabId)];
-  const nonInjectable = isNonInjectableUrl(tab?.url);
-  console.log(
-    '[tab-alerter/bg] onUpdated title event:',
-    '| tabId:', tabId,
-    '| title:', changeInfo.title,
-    '| tab.url:', tab?.url,
-    '| isNonInjectableUrl:', nonInjectable,
-    '| inMonitoredTabs:', monitored
-  );
-  if (nonInjectable) return;
+  if (isNonInjectableUrl(tab?.url)) return;
   const config = monitoredTabs[String(tabId)];
   if (!config) return;
+  // Suppress alert if the tab is currently in the foreground.
+  if (tab?.active) {
+    console.log('[tab-alerter/bg] onUpdated skipped (tab is active) | tabId:', tabId, '| title:', changeInfo.title);
+    return;
+  }
   if (!titleMatchesPattern(changeInfo.title, config.pattern)) return;
+  console.log('[tab-alerter/bg] onUpdated triggering alert | tabId:', tabId, '| title:', changeInfo.title);
   triggerAlert(tabId);
 });
 
 // 2. Catch-up check on tab activation.
 //
-// Chrome suppresses tabs.onUpdated title events for background https:// tabs
-// (rendering process isolation / tab suspension). Title changes on those tabs
-// are only propagated once the tab becomes active. By reading the current
-// title via chrome.tabs.get at activation time we catch any title change that
-// happened while the tab was in the background.
+// Chrome suppresses tabs.onUpdated title events for background https:// tabs.
+// When the tab becomes active we read its current title and alert if it
+// changed since we last saw it.
 //
-// We only alert if the title CHANGED relative to the last-known value.
-// This prevents spurious alerts when:
-//   - A tab is simply focused (no title change occurred)
-//   - The popup focuses the alerting tab to navigate to it (TC-INT-09)
-// On first activation (no lastKnownTitle entry) we record the title without
-// alerting, so monitoring a tab for the first time does not auto-alert.
+// Only alerts on a genuine title change (prev !== current) to avoid:
+//   - Spurious alerts when the user simply switches to a monitored tab
+//   - TC-INT-09: popup calling tabs.update({active:true}) on the alerting tab
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   const config = monitoredTabs[String(tabId)];
   if (!config) return;
@@ -169,38 +171,41 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
     lastKnownTitle[tabId] = current;
 
     if (prev === undefined) {
-      // First time we see this tab — record title but don't alert.
       console.log('[tab-alerter/bg] onActivated first sight | tabId:', tabId, '| title:', current);
       return;
     }
-
     if (prev === current) {
       console.log('[tab-alerter/bg] onActivated no title change | tabId:', tabId, '| title:', current);
       return;
     }
-
     console.log('[tab-alerter/bg] onActivated title changed! | tabId:', tabId, '| prev:', prev, '| current:', current);
     if (!titleMatchesPattern(current, config.pattern)) return;
     triggerAlert(tabId);
   });
 });
 
-// 3. Listen for web notification intercepts, popup actions, and content script requests
+// 3. Listen for web notification intercepts, popup actions, and content script requests.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log(
-    '[tab-alerter/bg] message received:',
-    message.type,
-    '| sender.tab.id:', sender.tab?.id,
-    '| sender.tab.url:', sender.tab?.url
-  );
+  if (message.type === 'TRIGGER_ALERT' && sender.tab) {
+    const tabId = sender.tab.id;
+    if (!monitoredTabs[String(tabId)]) {
+      console.warn('[tab-alerter/bg] TRIGGER_ALERT received but tab', tabId, 'is NOT in monitoredTabs.');
+      return false;
+    }
+    // Suppress if the tab is currently active — user is already there.
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab) return;
+      if (tab.active) {
+        console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (tab is active) | tabId:', tabId);
+        return;
+      }
+      console.log('[tab-alerter/bg] TRIGGER_ALERT accepted for tab:', tabId);
+      triggerAlert(tabId);
+    });
 
-  if (message.type === 'TRIGGER_ALERT' && sender.tab && monitoredTabs[String(sender.tab.id)]) {
-    console.log('[tab-alerter/bg] TRIGGER_ALERT accepted for tab:', sender.tab.id);
-    triggerAlert(sender.tab.id);
-  } else if (message.type === 'TRIGGER_ALERT' && sender.tab) {
-    console.warn('[tab-alerter/bg] TRIGGER_ALERT received but tab', sender.tab.id, 'is NOT in monitoredTabs. Current monitoredTabs:', JSON.stringify(monitoredTabs));
   } else if (message.type === 'CLEAR_ALERT') {
     clearAlert();
+
   } else if (message.type === 'GET_DOM_TRIGGERS' && sender.tab) {
     const tabId = sender.tab.id;
     chrome.storage.local.get(['tabDomTriggers'], (result) => {
@@ -214,6 +219,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse(selectors);
     });
     return true;
+
   } else if (message.type === 'MONITOR_TAB' && !sender.tab) {
     if (typeof message.tabId === 'number') {
       const updated = { ...monitoredTabs, [String(message.tabId)]: { pattern: '' } };
