@@ -4,7 +4,7 @@ have_fun: false
 # Configuration for persistent memory, which is used to improve responses over time.
 memory_config:
   # Whether to disable persistent memory for this specific repository. (Options: true, false)
-  disabled: tre
+  disabled: true
 
 # Configuration for code reviews on pull requests.
 code_review:
