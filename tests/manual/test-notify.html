@@ -31,11 +31,21 @@
       display: flex; gap: 1.5rem; align-items: center;
       padding: 0.6rem 0.8rem;
       background: #f0f4ff; border: 1px solid #c5d0f0;
-      border-radius: 6px; margin-bottom: 1.5rem;
+      border-radius: 6px; margin-bottom: 0.5rem;
       font-size: 0.875rem;
     }
     #options label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; user-select: none; }
     #delay-seconds { width: 2.5rem; padding: 0.1rem 0.3rem; font-size: 0.875rem; }
+
+    /* Notification permission status */
+    #notif-status {
+      font-size: 0.8rem; margin-bottom: 1.25rem;
+      padding: 0.35rem 0.8rem;
+      border-radius: 4px;
+    }
+    #notif-status.granted { background: #d4edda; color: #1a7f37; }
+    #notif-status.denied  { background: #fde8e8; color: #b91c1c; }
+    #notif-status.default { background: #fff8e1; color: #9a6700; }
   </style>
 </head>
 <body>
@@ -46,9 +56,7 @@
     Open the extension popup and enable monitoring for this tab before testing.
   </p>
 
-  <!-- ------------------------------------------------------------------ -->
-  <!-- Options                                                              -->
-  <!-- ------------------------------------------------------------------ -->
+  <!-- Options -->
   <div id="options">
     <label>
       <input type="checkbox" id="opt-delay" checked />
@@ -60,13 +68,14 @@
     <label>
       <input type="checkbox" id="opt-switch" />
       Switch tab when firing
-      <span style="color:#888;font-size:0.8rem">(opens a blank tab to push this one to background)</span>
+      <span style="color:#888;font-size:0.8rem">(opens blank tab so this one is in background)</span>
     </label>
   </div>
 
-  <!-- ------------------------------------------------------------------ -->
-  <!-- Path 1: window.Notification() proxy                                 -->
-  <!-- ------------------------------------------------------------------ -->
+  <!-- Notification permission status -->
+  <div id="notif-status" class="default">Notification permission: checking…</div>
+
+  <!-- Path 1 -->
   <section>
     <h2>Path 1 — Notification API proxy</h2>
     <p>Fires <code>new window.Notification()</code>. The extension intercepts
@@ -74,9 +83,7 @@
     <button onclick="run(fireNotification)">Fire window.Notification()</button>
   </section>
 
-  <!-- ------------------------------------------------------------------ -->
-  <!-- Path 2: childList DOM mutation (addedNodes)                         -->
-  <!-- ------------------------------------------------------------------ -->
+  <!-- Path 2 -->
   <section>
     <h2>Path 2 — DOM mutation: new node (childList)</h2>
     <p>Appends a <code>&lt;button aria-label="Approve"&gt;</code> — the selector
@@ -88,9 +95,7 @@
     <div id="container"></div>
   </section>
 
-  <!-- ------------------------------------------------------------------ -->
-  <!-- Path 3: attribute mutation on existing node                         -->
-  <!-- ------------------------------------------------------------------ -->
+  <!-- Path 3 -->
   <section>
     <h2>Path 3 — DOM mutation: attribute change (known gap ⚠️)</h2>
     <p>Creates a button then sets <code>aria-label="Approve"</code> on it.
@@ -100,9 +105,7 @@
     <button onclick="run(mutateAttribute)">Mutate aria-label on existing node</button>
   </section>
 
-  <!-- ------------------------------------------------------------------ -->
-  <!-- Path 4: tab title change                                            -->
-  <!-- ------------------------------------------------------------------ -->
+  <!-- Path 4 -->
   <section>
     <h2>Path 4 — Title change (background SW)</h2>
     <p>Modifies <code>document.title</code>. The background SW listens to
@@ -126,8 +129,8 @@
     // -----------------------------------------------------------------------
     // Options — persist across reloads
     // -----------------------------------------------------------------------
-    const optDelay  = document.getElementById('opt-delay');
-    const optSwitch = document.getElementById('opt-switch');
+    const optDelay   = document.getElementById('opt-delay');
+    const optSwitch  = document.getElementById('opt-switch');
     const delayInput = document.getElementById('delay-seconds');
 
     optDelay.checked  = localStorage.getItem('opt-delay')  !== 'false';
@@ -137,6 +140,28 @@
     optDelay.addEventListener('change',  () => localStorage.setItem('opt-delay',  optDelay.checked));
     optSwitch.addEventListener('change', () => localStorage.setItem('opt-switch', optSwitch.checked));
     delayInput.addEventListener('input', () => localStorage.setItem('delay-seconds', delayInput.value));
+
+    // -----------------------------------------------------------------------
+    // Notification permission — request eagerly so no prompt blocks buttons
+    // -----------------------------------------------------------------------
+    function updateNotifStatus(permission) {
+      const el = document.getElementById('notif-status');
+      el.className = permission;
+      const labels = {
+        granted: '✅ Notification permission: granted — Path 1 ready',
+        denied:  '❌ Notification permission: denied — reset via the address-bar lock icon',
+        default: '⏳ Notification permission: waiting for browser prompt…',
+      };
+      el.textContent = labels[permission] || permission;
+    }
+
+    // Request immediately so the prompt appears before any button is clicked
+    if (Notification.permission === 'granted' || Notification.permission === 'denied') {
+      updateNotifStatus(Notification.permission);
+    } else {
+      updateNotifStatus('default');
+      Notification.requestPermission().then(updateNotifStatus);
+    }
 
     // -----------------------------------------------------------------------
     // Logging
@@ -153,7 +178,6 @@
     // run(fn) — wraps every test action with delay + tab-switch options
     // -----------------------------------------------------------------------
     function run(fn) {
-      // Cancel any in-progress countdown
       if (countdownTimer !== null) {
         clearTimeout(countdownTimer);
         countdownTimer = null;
@@ -177,7 +201,6 @@
         return;
       }
 
-      // Countdown
       let remaining = seconds;
       log(`Firing in ${remaining}s${useSwitch ? ' (will open blank tab)' : ' — switch tabs now!'}`, 'warn');
 
@@ -199,15 +222,10 @@
     // -----------------------------------------------------------------------
     function fireNotification() {
       if (Notification.permission === 'denied') {
-        log('Notification permission is denied. Please reset permissions in the browser address bar and try again.', 'warn');
-      } else if (Notification.permission === 'default') {
-        Notification.requestPermission().then(p => {
-          log(`Notification permission: ${p}`, p === 'granted' ? 'ok' : 'warn');
-          if (p === 'granted') doFireNotification();
-        });
-      } else {
-        doFireNotification();
+        log('Notification permission is denied. Reset via the address-bar lock icon and reload.', 'warn');
+        return;
       }
+      doFireNotification();
     }
 
     function doFireNotification() {
