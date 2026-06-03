@@ -43,8 +43,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT }, (tabs) => {
       const list = document.getElementById('tab-list');
-      if (tabs.length === 0) list.innerHTML = '<p>No tabs found.</p>';
-
+      if (tabs.length === 0) {
+        list.innerHTML = '<p>No tabs found.</p>';
+        return;
+      }
+      
       // --- Select All row ---
       const selectAllRow = document.createElement('div');
       selectAllRow.className = 'select-all-row';
