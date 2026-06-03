@@ -35,8 +35,7 @@ async function init() {
   }
   monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
 
-  // Prune stale tab IDs immediately on startup — before any alert listeners
-  // can fire — so sessions never begin with ghost entries in monitoredTabs.
+  // Prune stale tab IDs and seed lastKnownTitle before any listener fires.
   await cleanupStaleMonitoredTabs();
 
   console.log('[tab-alerter/bg] init complete, monitoredTabs:', JSON.stringify(monitoredTabs));
@@ -78,10 +77,20 @@ function removeDomTriggers(tabId) {
 
 async function cleanupStaleMonitoredTabs() {
   const keys = Object.keys(monitoredTabs);
-  if (keys.length === 0) return;
-
+  // Always query all tabs to seed lastKnownTitle, even if no cleanup needed.
   const allTabs = await chrome.tabs.query({});
-  const liveIds = new Set(allTabs.map(t => t.id));
+  const liveIds = new Set();
+
+  for (const tab of allTabs) {
+    if (tab.id == null) continue;
+    liveIds.add(tab.id);
+    // Seed catch-up baseline so onActivated can detect genuine changes.
+    if (tab.title) {
+      lastKnownTitle[tab.id] = tab.title;
+    }
+  }
+
+  if (keys.length === 0) return;
 
   let changed = false;
   for (const key of keys) {

@@ -20,6 +20,10 @@ test.describe('Alert Lifecycle (TC-INT-08–10)', () => {
       tabId
     );
 
+    // Push the monitored tab into the background so active-tab suppression
+    // does not prevent the alert from firing.
+    await context.newPage();
+
     await page.evaluate(() => { document.title = 'New Title — Alert Me'; });
 
     // Single poll asserts both presence and correct value atomically,
