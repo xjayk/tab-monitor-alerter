@@ -108,6 +108,7 @@ async function cleanupStaleMonitoredTabs() {
   for (const tab of allTabs) {
     if (tab.id === null || tab.id === undefined) continue;
     liveIds.add(tab.id);
+    // Seed catch-up baseline so onActivated can detect genuine changes.
     if (tab.title) {
       lastKnownTitle[tab.id] = tab.title;
     }
@@ -205,6 +206,9 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 // 1. Listen for tab updates — handles both navigation/re-injection and title changes.
+//    Skips the active tab — the user is already looking at it.
+//    Records every seen title in lastKnownTitle so onActivated can
+//    detect genuine background title changes.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'loading' && monitoredTabs[String(tabId)]) {
     removeInjectedTab(tabId);
@@ -232,6 +236,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 // 2. Catch-up check on tab activation.
+//
+// Chrome suppresses tabs.onUpdated title events for background https:// tabs.
+// When the tab becomes active we read its current title and alert if it
+// changed since we last saw it.
+//
+// Only alerts on a genuine title change (prev !== current) to avoid:
+//   - Spurious alerts when the user simply switches to a monitored tab
+//   - TC-INT-09: popup calling tabs.update({active:true}) on the alerting tab
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   const config = monitoredTabs[String(tabId)];
   if (!config) return;
@@ -266,6 +278,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.warn('[tab-alerter/bg] TRIGGER_ALERT received but tab', tabId, 'is NOT in monitoredTabs.');
       return false;
     }
+// TODO: FIX! Broken by merge conflict resolution. <<<<<<< feat/dynamic-content-script-injection
     (async () => {
       try {
         const tab = await chrome.tabs.get(tabId);
@@ -279,6 +292,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Ignore or log error if tab was closed
       }
     })();
+// TODO: FIX! Broken by merge conflict resolution. =======
+    // Suppress if the tab is currently active — user is already there.
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab) return;
+      if (tab.active) {
+        console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (tab is active) | tabId:', tabId);
+        return;
+      }
+      console.log('[tab-alerter/bg] TRIGGER_ALERT accepted for tab:', tabId);
+      triggerAlert(tabId);
+    });
+// TODO: FIX! Broken by merge conflict resolution. >>>>>>> trunk
 
   } else if (message.type === 'CLEAR_ALERT') {
     clearAlert();
