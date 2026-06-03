@@ -32,6 +32,9 @@ function isNonInjectableUrl(url) {
 }
 
 async function init() {
+  const { name, version, version_name } = chrome.runtime.getManifest();
+  console.log(`[tab-alerter/bg] 🔖 ${name} v${version_name ?? version} (ext: ${chrome.runtime.id})`);
+
   let res = {};
   try {
     res = await chrome.storage.local.get(['monitoredTabs']);
@@ -59,7 +62,7 @@ async function cleanupStaleMonitoredTabs() {
   const liveIds = new Set();
 
   for (const tab of allTabs) {
-    if (tab.id == null) continue;
+    if (tab.id === null) continue;
     liveIds.add(tab.id);
     if (tab.title) {
       lastKnownTitle[tab.id] = tab.title;
@@ -131,7 +134,7 @@ function getSelectorsForUrl(url) {
   if (!url) return [];
   try {
     const host = new URL(url).hostname.replace(/^www\./, '');
-    return (DEFAULT_DOM_TRIGGERS[host] ?? DEFAULT_DOM_TRIGGERS["www." + host]) ?? [];
+    return (DEFAULT_DOM_TRIGGERS[host] ?? DEFAULT_DOM_TRIGGERS['www.' + host]) ?? [];
   } catch {
     return [];
   }
@@ -245,8 +248,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   } else if (message.type === 'GET_DOM_TRIGGERS' && sender.tab) {
     // Resolve selectors directly from the in-memory map using the sender's
-    // URL. This avoids the async storage-write race that caused Bug 1:
-    // previously maybeInjectDomTriggers wrote to tabDomTriggers storage
+    // URL. This avoids the async storage-write race that caused the original
+    // bug: previously maybeInjectDomTriggers wrote to tabDomTriggers storage
     // after executeScript fired, so GET_DOM_TRIGGERS always read stale [].
     const selectors = getSelectorsForUrl(sender.tab.url);
     console.log('[tab-alerter/bg] GET_DOM_TRIGGERS for tab', sender.tab.id,

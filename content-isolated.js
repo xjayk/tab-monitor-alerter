@@ -1,4 +1,7 @@
-console.log('[tab-alerter/isolated] script loaded, posting CONTENT_SCRIPT_READY');
+const { name, version, version_name } = chrome.runtime.getManifest();
+const _v = version_name ?? version;
+console.log(`[tab-alerter/isolated] 🔖 ${name} v${_v} loaded`);
+
 const targetOrigin = (window.location.origin === 'null' || window.location.protocol === 'file:') ? '*' : window.location.origin;
 window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, targetOrigin);
 
@@ -20,9 +23,6 @@ function relaySendMessage(msg, responseCallback) {
     }
   } catch (e) {
     if (e.message && e.message.includes('Extension context invalidated')) {
-      // The extension was reloaded, updated, or disabled. This content script
-      // instance is permanently orphaned and cannot communicate with the
-      // background. Log and stop — retrying would create an infinite loop.
       console.warn('[tab-alerter/isolated] Extension context invalidated — content script is orphaned');
     } else {
       console.warn('[tab-alerter/isolated] sendMessage error:', e.message);
@@ -73,8 +73,8 @@ window.addEventListener('message', (event) => {
       // Use optional chaining: chrome.runtime may become undefined between
       // the sendMessage call and this async callback firing (context
       // invalidated mid-flight). Bare access would throw a TypeError.
-      if (!chrome.runtime || chrome.runtime.lastError) {
-        console.warn('[tab-alerter/isolated] GET_DOM_TRIGGERS error:', chrome.runtime?.lastError?.message || 'runtime unavailable');
+      if (chrome.runtime?.lastError) {
+        console.warn('[tab-alerter/isolated] GET_DOM_TRIGGERS error:', chrome.runtime.lastError.message);
         return;
       }
       console.log('[tab-alerter/isolated] GET_DOM_TRIGGERS response:', selectors);
