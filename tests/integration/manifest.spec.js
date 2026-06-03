@@ -8,7 +8,7 @@
  * Specifically catches:
  *   - Missing action.default_popup (popup unreachable via icon click)
  *   - Missing or wrong permissions
- *   - Missing content_scripts match patterns (e.g. file://*/*)
+ *   - Missing content_scripts match patterns (e.g. file:// URLs)
  */
 import { test, expect } from './fixtures.js';
 import { readFileSync } from 'fs';
