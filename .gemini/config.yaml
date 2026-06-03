@@ -1,10 +1,21 @@
+have_fun: false
+memory_config:
+  disabled: true
 code_review:
+  disable: false
+  comment_severity_threshold: HIGH
+  max_review_comments: -1
   pull_request_opened:
+    help: false
+    summary: false
+    code_review: true
     include_drafts: false
 ignore_patterns:
   - "*.md"
   - "*.txt"
   - "*.rst"
   - "docs/**"
-
-
+  - "package-lock.json"
+  - "yarn.lock"
+  - "build/**"
+  - "dist/**"
