@@ -38,18 +38,19 @@ async function init() {
   }
   monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
 
-  // Defer cleanup so it doesn't race against session restore.
-  setTimeout(() => {
-    cleanupStaleMonitoredTabs().catch(console.error);
+  // Run cleanup first, then inject into remaining live tabs.
+  // Injection is deferred into the same setTimeout so stale IDs are purged
+  // before we attempt scripting.executeScript on them (avoids console errors).
+  setTimeout(async () => {
+    await cleanupStaleMonitoredTabs().catch(console.error);
+    // Re-inject content scripts into each surviving monitored tab.
+    // Content scripts persist across SW restarts in the page context, but we
+    // re-inject here to cover tabs that navigated while the SW was inactive.
+    // The guard in content-isolated.js prevents duplicate listener accumulation.
+    for (const key of Object.keys(monitoredTabs)) {
+      injectMonitor(Number(key)).catch(console.error);
+    }
   }, CLEANUP_DELAY_MS);
-
-  // Inject content scripts into each monitored tab after cleanup.
-  // Content scripts persist across SW restarts in the page context, but we
-  // re-inject here to cover tabs that navigated while the SW was inactive.
-  // The guard in content-isolated.js prevents duplicate listener accumulation.
-  for (const key of Object.keys(monitoredTabs)) {
-    injectMonitor(Number(key)).catch(console.error);
-  }
 }
 
 void init();
@@ -131,6 +132,9 @@ async function cleanupStaleMonitoredTabs() {
  * Only injects once per tab navigation — guards against duplicate calls
  * via the injectedTabs Set. On navigation the entry is cleared so the
  * scripts are re-injected into the new document.
+ *
+ * content-isolated.js is injected first so its message listener is ready
+ * before content-main.js runs and sends DOM_OBSERVER_READY.
  */
 async function injectMonitor(tabId) {
   if (injectedTabs.has(tabId)) return;
@@ -205,12 +209,26 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   triggerAlert(tabId);
 });
 
-// 2. Listen for web notification intercepts and popup actions
-chrome.runtime.onMessage.addListener((message, sender) => {
+// 2. Listen for web notification intercepts, popup actions, and content script requests
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'TRIGGER_ALERT' && sender.tab && monitoredTabs[String(sender.tab.id)]) {
     triggerAlert(sender.tab.id);
   } else if (message.type === 'CLEAR_ALERT') {
     clearAlert();
+  } else if (message.type === 'GET_DOM_TRIGGERS' && sender.tab) {
+    // Content script requests its DOM trigger selectors. The background
+    // resolves the tab ID from sender.tab.id (content scripts cannot call
+    // chrome.tabs.getCurrent) and reads tabDomTriggers from storage.
+    const tabId = sender.tab.id;
+    chrome.storage.local.get(['tabDomTriggers'], (result) => {
+      if (chrome.runtime.lastError) {
+        sendResponse([]);
+        return;
+      }
+      const allTriggers = result.tabDomTriggers || {};
+      sendResponse(allTriggers[tabId] || []);
+    });
+    return true; // Keep message channel open for async sendResponse
   } else if (message.type === 'MONITOR_TAB' && !sender.tab) {
     if (typeof message.tabId === 'number') {
       const updated = { ...monitoredTabs, [String(message.tabId)]: { pattern: '' } };

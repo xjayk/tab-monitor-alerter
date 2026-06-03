@@ -1,4 +1,8 @@
 (function () {
+  // Guard against re-injection (e.g. after a SW restart): prevents duplicate
+  // Notification proxies, MutationObserver instances, and message listeners.
+  if (window.__tabMonitorMain) return;
+  window.__tabMonitorMain = true;
 
   // ---------------------------------------------------------------------------
   // 1. Notification API Proxy
@@ -25,11 +29,13 @@
   //
   // Configuration flow (MAIN world cannot access chrome.storage directly):
   //   1. MAIN world sends DOM_OBSERVER_READY
-  //   2. ISOLATED world reads chrome.storage.local and replies SET_DOM_TRIGGERS
-  //   3. MAIN world receives selectors and starts the observer
+  //   2. ISOLATED world asks background for selectors via GET_DOM_TRIGGERS
+  //   3. Background resolves tab ID from sender.tab.id, reads storage, replies
+  //   4. ISOLATED world posts SET_DOM_TRIGGERS to MAIN world
+  //   5. MAIN world receives selectors and starts the observer
   //
   // Selector storage shape:
-  //   monitoredTabs[tabId].domTriggers = ['selector1', 'selector2']
+  //   tabDomTriggers[tabId] = ['selector1', 'selector2']
   // ---------------------------------------------------------------------------
 
   // Track already-alerted nodes to prevent duplicate alerts for the same element
@@ -92,7 +98,7 @@
    * Because MAIN world content scripts cannot access chrome.storage, we use
    * a postMessage handshake with the ISOLATED world script:
    *   MAIN  →  DOM_OBSERVER_READY  →  ISOLATED
-   *   MAIN  ←  SET_DOM_TRIGGERS   ←  ISOLATED (reads storage and replies)
+   *   MAIN  ←  SET_DOM_TRIGGERS   ←  ISOLATED (asks background, relays reply)
    */
   function initDomObserver() {
     // Listen for the storage reply from the ISOLATED world

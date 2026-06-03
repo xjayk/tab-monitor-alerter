@@ -10,20 +10,13 @@ if (!window.__tabMonitorIsolated) {
 
     } else if (event.data.type === 'DOM_OBSERVER_READY') {
       // MAIN world is ready to receive DOM trigger selectors.
-      // tabDomTriggers is keyed by tab ID to prevent cross-tab overwrites.
-      // We resolve our own tab ID via chrome.tabs.getCurrent before reading.
-      chrome.tabs.getCurrent((tab) => {
-        if (chrome.runtime.lastError || !tab) return;
-        const tabId = tab.id;
-
-        chrome.storage.local.get(['tabDomTriggers'], (result) => {
-          if (chrome.runtime.lastError) return;
-          const allTriggers = result.tabDomTriggers || {};
-          const selectors = allTriggers[tabId];
-          if (Array.isArray(selectors) && selectors.length > 0) {
-            window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors }, '*');
-          }
-        });
+      // chrome.tabs.getCurrent is not available in content scripts — instead
+      // we ask the background to resolve our tab ID and read storage for us.
+      chrome.runtime.sendMessage({ type: 'GET_DOM_TRIGGERS' }, (selectors) => {
+        if (chrome.runtime.lastError) return;
+        if (Array.isArray(selectors) && selectors.length > 0) {
+          window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors }, '*');
+        }
       });
     }
   });
