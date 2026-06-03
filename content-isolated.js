@@ -1,10 +1,36 @@
-// Post a sentinel so test pages can detect that the content script was injected.
 console.log('[tab-alerter/isolated] script loaded, posting CONTENT_SCRIPT_READY');
 const targetOrigin = (window.location.origin === 'null' || window.location.protocol === 'file:') ? '*' : window.location.origin;
 window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, targetOrigin);
 
+// Guard: chrome.runtime may be undefined in certain sandboxed contexts.
+function runtimeAvailable() {
+  return typeof chrome !== 'undefined' && !!chrome.runtime;
+}
+
+function relaySendMessage(msg, responseCallback) {
+  if (!runtimeAvailable()) {
+    console.warn('[tab-alerter/isolated] chrome.runtime unavailable — cannot send:', msg.type);
+    return;
+  }
+  try {
+    if (responseCallback) {
+      chrome.runtime.sendMessage(msg, responseCallback);
+    } else {
+      chrome.runtime.sendMessage(msg);
+    }
+  } catch (e) {
+    if (e.message && e.message.includes('Extension context invalidated')) {
+      // SW was terminated. Re-post DOM_OBSERVER_READY after a short delay so
+      // content-main.js can retry the handshake once the SW wakes up.
+      console.warn('[tab-alerter/isolated] Extension context invalidated — will retry handshake in 1 s');
+      setTimeout(() => window.postMessage({ type: 'DOM_OBSERVER_READY' }, targetOrigin), 1000);
+    } else {
+      console.warn('[tab-alerter/isolated] sendMessage error:', e.message);
+    }
+  }
+}
+
 window.addEventListener('message', (event) => {
-  // Log EVERY message before any guard.
   if (event.data && event.data.type) {
     console.log(
       '[tab-alerter/isolated] message received:',
@@ -18,10 +44,6 @@ window.addEventListener('message', (event) => {
 
   if (event.source !== window) return;
 
-  // On file:// pages the browser sets event.origin to the string "null"
-  // (opaque origin per spec) while window.location.origin is "file://".
-  // Allow either: same origin as the page, or the opaque-origin sentinel.
-  // The event.source === window guard above is the real same-page proof.
   const originOk =
     event.origin === window.location.origin ||
     event.origin === 'null';
@@ -36,11 +58,11 @@ window.addEventListener('message', (event) => {
 
   if (event.data && event.data.type === 'TAB_ALERTER_NOTIFICATION') {
     console.log('[tab-alerter/isolated] relaying TRIGGER_ALERT to background');
-    chrome.runtime.sendMessage({ type: 'TRIGGER_ALERT' });
+    relaySendMessage({ type: 'TRIGGER_ALERT' });
 
   } else if (event.data && event.data.type === 'DOM_OBSERVER_READY') {
     console.log('[tab-alerter/isolated] received DOM_OBSERVER_READY, sending GET_DOM_TRIGGERS to background');
-    chrome.runtime.sendMessage({ type: 'GET_DOM_TRIGGERS' }, (selectors) => {
+    relaySendMessage({ type: 'GET_DOM_TRIGGERS' }, (selectors) => {
       if (chrome.runtime.lastError) {
         console.warn('[tab-alerter/isolated] GET_DOM_TRIGGERS error:', chrome.runtime.lastError.message);
         return;
