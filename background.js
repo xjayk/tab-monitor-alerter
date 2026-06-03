@@ -103,6 +103,7 @@ async function injectMonitor(tabId) {
     return;
   }
   if (isNonInjectableUrl(tab.url)) {
+    injectedTabs.delete(tabId);
     return;
   }
 
@@ -129,8 +130,8 @@ function removeInjectedTab(tabId) {
 function getSelectorsForUrl(url) {
   if (!url) return [];
   try {
-    const host = new URL(url).hostname;
-    return DEFAULT_DOM_TRIGGERS[host] ?? [];
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    return (DEFAULT_DOM_TRIGGERS[host] ?? DEFAULT_DOM_TRIGGERS["www." + host]) ?? [];
   } catch {
     return [];
   }
