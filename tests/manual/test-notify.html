@@ -25,6 +25,17 @@
     .ok   { color: #1a7f37; }
     .warn { color: #9a6700; }
     #container { margin-top: 0.75rem; }
+
+    /* Options bar */
+    #options {
+      display: flex; gap: 1.5rem; align-items: center;
+      padding: 0.6rem 0.8rem;
+      background: #f0f4ff; border: 1px solid #c5d0f0;
+      border-radius: 6px; margin-bottom: 1.5rem;
+      font-size: 0.875rem;
+    }
+    #options label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; user-select: none; }
+    #delay-seconds { width: 2.5rem; padding: 0.1rem 0.3rem; font-size: 0.875rem; }
   </style>
 </head>
 <body>
@@ -36,20 +47,35 @@
   </p>
 
   <!-- ------------------------------------------------------------------ -->
+  <!-- Options                                                              -->
+  <!-- ------------------------------------------------------------------ -->
+  <div id="options">
+    <label>
+      <input type="checkbox" id="opt-delay" checked />
+      Delay before firing
+    </label>
+    <input type="number" id="delay-seconds" value="5" min="1" max="30" title="Delay in seconds" />
+    <span style="color:#666">s</span>
+
+    <label>
+      <input type="checkbox" id="opt-switch" />
+      Switch tab when firing
+      <span style="color:#888;font-size:0.8rem">(opens a blank tab to push this one to background)</span>
+    </label>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
   <!-- Path 1: window.Notification() proxy                                 -->
-  <!-- content-main.js wraps window.Notification; firing one should alert. -->
   <!-- ------------------------------------------------------------------ -->
   <section>
     <h2>Path 1 — Notification API proxy</h2>
     <p>Fires <code>new window.Notification()</code>. The extension intercepts
     this in the MAIN world and sends <code>TAB_ALERTER_NOTIFICATION</code>.</p>
-    <button onclick="fireNotification()">Fire window.Notification()</button>
+    <button onclick="run(fireNotification)">Fire window.Notification()</button>
   </section>
 
   <!-- ------------------------------------------------------------------ -->
   <!-- Path 2: childList DOM mutation (addedNodes)                         -->
-  <!-- Injects a node matching the DEFAULT_DOM_TRIGGERS selector.          -->
-  <!-- This SHOULD trigger an alert with the current observer config.      -->
   <!-- ------------------------------------------------------------------ -->
   <section>
     <h2>Path 2 — DOM mutation: new node (childList)</h2>
@@ -57,15 +83,13 @@
     in <code>DEFAULT_DOM_TRIGGERS</code> for perplexity.ai.<br>
     <strong>Expected:</strong> alert fires. If it doesn&rsquo;t, the
     handshake or selector is broken.</p>
-    <button onclick="injectMatchingNode()">Inject matching node</button>
+    <button onclick="run(injectMatchingNode)">Inject matching node</button>
     <button onclick="removeInjected()">Remove injected node</button>
     <div id="container"></div>
   </section>
 
   <!-- ------------------------------------------------------------------ -->
   <!-- Path 3: attribute mutation on existing node                         -->
-  <!-- Sets aria-label="Approve" on an already-present element.            -->
-  <!-- This currently DOES NOT trigger — attributes:true is not set.       -->
   <!-- ------------------------------------------------------------------ -->
   <section>
     <h2>Path 3 — DOM mutation: attribute change (known gap ⚠️)</h2>
@@ -73,18 +97,17 @@
     The MutationObserver only watches <code>addedNodes</code>, so this
     <strong>should NOT alert</strong> until <code>attributes: true</code>
     is added to the observer config.</p>
-    <button onclick="mutateAttribute()">Mutate aria-label on existing node</button>
+    <button onclick="run(mutateAttribute)">Mutate aria-label on existing node</button>
   </section>
 
   <!-- ------------------------------------------------------------------ -->
   <!-- Path 4: tab title change                                            -->
-  <!-- Changes document.title — triggers chrome.tabs.onUpdated in SW.     -->
   <!-- ------------------------------------------------------------------ -->
   <section>
     <h2>Path 4 — Title change (background SW)</h2>
     <p>Modifies <code>document.title</code>. The background SW listens to
     <code>chrome.tabs.onUpdated</code> for title changes.</p>
-    <button onclick="changeTitle()">Change tab title</button>
+    <button onclick="run(changeTitle)">Change tab title</button>
     <button onclick="resetTitle()">Reset title</button>
   </section>
 
@@ -98,7 +121,26 @@
     const originalTitle = document.title;
     let injectedNode = null;
     let mutatingNode = null;
+    let countdownTimer = null;
 
+    // -----------------------------------------------------------------------
+    // Options — persist across reloads
+    // -----------------------------------------------------------------------
+    const optDelay  = document.getElementById('opt-delay');
+    const optSwitch = document.getElementById('opt-switch');
+    const delayInput = document.getElementById('delay-seconds');
+
+    optDelay.checked  = localStorage.getItem('opt-delay')  !== 'false';
+    optSwitch.checked = localStorage.getItem('opt-switch') === 'true';
+    delayInput.value  = localStorage.getItem('delay-seconds') || '5';
+
+    optDelay.addEventListener('change',  () => localStorage.setItem('opt-delay',  optDelay.checked));
+    optSwitch.addEventListener('change', () => localStorage.setItem('opt-switch', optSwitch.checked));
+    delayInput.addEventListener('input', () => localStorage.setItem('delay-seconds', delayInput.value));
+
+    // -----------------------------------------------------------------------
+    // Logging
+    // -----------------------------------------------------------------------
     function log(msg, level = 'ok') {
       const el = document.getElementById('log');
       const line = document.createElement('div');
@@ -107,7 +149,54 @@
       el.prepend(line);
     }
 
-    // Path 1
+    // -----------------------------------------------------------------------
+    // run(fn) — wraps every test action with delay + tab-switch options
+    // -----------------------------------------------------------------------
+    function run(fn) {
+      // Cancel any in-progress countdown
+      if (countdownTimer !== null) {
+        clearTimeout(countdownTimer);
+        countdownTimer = null;
+        log('Previous countdown cancelled', 'warn');
+      }
+
+      const useDelay  = optDelay.checked;
+      const useSwitch = optSwitch.checked;
+      const seconds   = Math.max(1, parseInt(delayInput.value, 10) || 5);
+
+      function fire() {
+        if (useSwitch) {
+          window.open('about:blank', '_blank');
+          log('Opened blank tab — this tab is now in background');
+        }
+        fn();
+      }
+
+      if (!useDelay) {
+        fire();
+        return;
+      }
+
+      // Countdown
+      let remaining = seconds;
+      log(`Firing in ${remaining}s${useSwitch ? ' (will open blank tab)' : ' — switch tabs now!'}`, 'warn');
+
+      function tick() {
+        remaining--;
+        if (remaining <= 0) {
+          countdownTimer = null;
+          fire();
+        } else {
+          log(`${remaining}s…`, 'warn');
+          countdownTimer = setTimeout(tick, 1000);
+        }
+      }
+      countdownTimer = setTimeout(tick, 1000);
+    }
+
+    // -----------------------------------------------------------------------
+    // Path 1 — Notification
+    // -----------------------------------------------------------------------
     function fireNotification() {
       if (Notification.permission === 'denied') {
         log('Notification permission is denied. Please reset permissions in the browser address bar and try again.', 'warn');
@@ -126,7 +215,9 @@
       log('window.Notification() called');
     }
 
-    // Path 2
+    // -----------------------------------------------------------------------
+    // Path 2 — DOM childList mutation
+    // -----------------------------------------------------------------------
     function injectMatchingNode() {
       if (injectedNode) {
         log('Node already injected — remove it first', 'warn');
@@ -146,7 +237,9 @@
       log('Removed injected node — can inject again');
     }
 
-    // Path 3
+    // -----------------------------------------------------------------------
+    // Path 3 — attribute mutation
+    // -----------------------------------------------------------------------
     function mutateAttribute() {
       if (!mutatingNode) {
         mutatingNode = document.createElement('button');
@@ -158,7 +251,9 @@
       log('Set aria-label="Approve" on existing node (expect NO alert with current config)', 'warn');
     }
 
-    // Path 4
+    // -----------------------------------------------------------------------
+    // Path 4 — title change
+    // -----------------------------------------------------------------------
     let titleCounter = 1;
     function changeTitle() {
       document.title = `(${titleCounter++}) Tab Monitor Test — updated`;
