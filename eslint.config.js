@@ -104,9 +104,17 @@ export default [
   },
 
   // -------------------------------------------------------------------------
-  // Ignore build artifacts and dependencies
+  // Ignore build artifacts, dependencies, and manual test pages
+  // tests/manual/ contains plain HTML with inline scripts — not linted
   // -------------------------------------------------------------------------
   {
-    ignores: ['node_modules/**', 'dist/**', 'coverage/**', 'playwright-report/**', 'test-results/**'],
+    ignores: [
+      'node_modules/**',
+      'dist/**',
+      'coverage/**',
+      'playwright-report/**',
+      'test-results/**',
+      'tests/manual/**',
+    ],
   },
 ];
