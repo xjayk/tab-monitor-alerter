@@ -45,6 +45,39 @@ document.addEventListener('DOMContentLoaded', () => {
       const list = document.getElementById('tab-list');
       if (tabs.length === 0) list.innerHTML = '<p>No tabs found.</p>';
 
+      // --- Select All row ---
+      const selectAllRow = document.createElement('div');
+      selectAllRow.className = 'select-all-row';
+
+      const selectAllCheckbox = document.createElement('input');
+      selectAllCheckbox.type = 'checkbox';
+      selectAllCheckbox.id = 'select-all';
+
+      const selectAllLabel = document.createElement('label');
+      selectAllLabel.className = 'select-all-label';
+      selectAllLabel.textContent = 'Select All';
+      selectAllLabel.prepend(selectAllCheckbox);
+
+      selectAllRow.appendChild(selectAllLabel);
+      list.appendChild(selectAllRow);
+
+      const monitoredCount = tabs.filter(t => monitoredTabsObj[String(t.id)]).length;
+      selectAllCheckbox.checked = monitoredCount === tabs.length;
+      selectAllCheckbox.indeterminate = monitoredCount > 0 && monitoredCount < tabs.length;
+
+      selectAllCheckbox.addEventListener('change', () => {
+        const checked = selectAllCheckbox.checked;
+        tabs.forEach(t => {
+          const key = String(t.id);
+          if (checked) monitoredTabsObj[key] = { pattern: '' };
+          else delete monitoredTabsObj[key];
+        });
+        chrome.storage.local.set({ monitoredTabs: monitoredTabsObj }).catch(console.error);
+        list.querySelectorAll('.toggle').forEach(cb => { cb.checked = checked; });
+        selectAllCheckbox.indeterminate = false;
+      });
+      // --- end Select All ---
+
       tabs.forEach(tab => {
         const key = String(tab.id);
         const config = monitoredTabsObj[key];
@@ -57,25 +90,40 @@ document.addEventListener('DOMContentLoaded', () => {
         title.textContent = tab.title;
         title.title = tab.title;
 
+        const patternInput = document.createElement('input');
+        patternInput.type = 'text';
+        patternInput.className = 'pattern-input';
+        patternInput.placeholder = 'Regex';
+        patternInput.title = 'Alert only when title matches this regex (leave empty for any change)';
+        if (config) patternInput.value = config.pattern || '';
+
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.className = 'toggle';
         checkbox.checked = !!config;
+        patternInput.disabled = !checkbox.checked;
 
         function persist() {
+          patternInput.disabled = !checkbox.checked;
           if (checkbox.checked) {
-            // Preserve any existing pattern if the tab was already monitored;
-            // default to empty string (match-any) for newly added tabs.
-            monitoredTabsObj[key] = { pattern: config?.pattern || '' };
+            monitoredTabsObj[key] = { pattern: patternInput.value };
           } else {
             delete monitoredTabsObj[key];
           }
           chrome.storage.local.set({ monitoredTabs: monitoredTabsObj }).catch(console.error);
+
+          // Sync select-all state
+          const toggles = list.querySelectorAll('.toggle');
+          const checkedCount = [...toggles].filter(cb => cb.checked).length;
+          selectAllCheckbox.checked = checkedCount === toggles.length;
+          selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < toggles.length;
         }
 
         checkbox.addEventListener('change', persist);
+        patternInput.addEventListener('change', persist);
 
         item.appendChild(title);
+        item.appendChild(patternInput);
         item.appendChild(checkbox);
         list.appendChild(item);
       });
