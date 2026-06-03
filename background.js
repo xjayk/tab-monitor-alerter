@@ -20,6 +20,19 @@ const DEFAULT_DOM_TRIGGERS = {
   'www.perplexity.ai': ['button[aria-label="Approve"]'],
 };
 
+/**
+ * Returns true for URLs where Chrome does not allow content script injection
+ * and therefore the extension cannot meaningfully monitor the tab.
+ * chrome:// and chrome-extension:// pages are excluded.
+ *
+ * @param {string|undefined} url
+ * @returns {boolean}
+ */
+function isNonInjectableUrl(url) {
+  if (!url) return true;
+  return url.startsWith('chrome://') || url.startsWith('chrome-extension://');
+}
+
 // ---------------------------------------------------------------------------
 // Init: read persisted state from storage.
 // Must be an async function — top-level await is not allowed in SW modules.
@@ -136,8 +149,12 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 // 1. Listen for title updates
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!changeInfo.title) return;
+  // chrome:// and chrome-extension:// tabs cannot have content scripts injected.
+  // Ignore title changes from them to prevent spurious alerts when the
+  // extensions page navigates or reloads.
+  if (isNonInjectableUrl(tab.url)) return;
   const config = monitoredTabs[String(tabId)];
   if (!config) return;
   if (!titleMatchesPattern(changeInfo.title, config.pattern)) return;

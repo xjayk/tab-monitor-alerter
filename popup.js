@@ -43,7 +43,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT }, (tabs) => {
       const list = document.getElementById('tab-list');
-      if (tabs.length === 0) {
+
+      // Filter out tabs where content scripts cannot be injected.
+      // chrome:// and chrome-extension:// pages are excluded: Chrome blocks
+      // content script injection into them, so monitoring would only produce
+      // title-change alerts with no Notification or DOM-trigger support, and
+      // would cause chrome.tabs.getCurrent errors in content-isolated.js.
+      const injectableTabs = tabs.filter(tab =>
+        tab.url &&
+        !tab.url.startsWith('chrome://') &&
+        !tab.url.startsWith('chrome-extension://')
+      );
+
+      if (injectableTabs.length === 0) {
         list.innerHTML = '<p>No tabs found.</p>';
         return;
       }
@@ -66,16 +78,16 @@ document.addEventListener('DOMContentLoaded', () => {
       selectAllRow.appendChild(selectAllLabel);
       list.appendChild(selectAllRow);
 
-      const monitoredCount = tabs.filter(t => monitoredTabsObj[String(t.id)]).length;
-      selectAllCheckbox.checked = monitoredCount === tabs.length;
-      selectAllCheckbox.indeterminate = monitoredCount > 0 && monitoredCount < tabs.length;
+      const monitoredCount = injectableTabs.filter(t => monitoredTabsObj[String(t.id)]).length;
+      selectAllCheckbox.checked = monitoredCount === injectableTabs.length;
+      selectAllCheckbox.indeterminate = monitoredCount > 0 && monitoredCount < injectableTabs.length;
 
       selectAllCheckbox.addEventListener('change', () => {
         const checked = selectAllCheckbox.checked;
         // Snapshot state before mutation for rollback on failure.
         const prevState = { ...monitoredTabsObj };
 
-        tabs.forEach(t => {
+        injectableTabs.forEach(t => {
           const key = String(t.id);
           if (checked) {
             // Preserve any existing pattern — do not overwrite with empty string.
@@ -99,14 +111,14 @@ document.addEventListener('DOMContentLoaded', () => {
           list.querySelectorAll('.tab-toggle').forEach(cb => {
             cb.checked = !!monitoredTabsObj[cb.dataset.tabId];
           });
-          const count = tabs.filter(t => monitoredTabsObj[String(t.id)]).length;
-          selectAllCheckbox.checked = count === tabs.length;
-          selectAllCheckbox.indeterminate = count > 0 && count < tabs.length;
+          const count = injectableTabs.filter(t => monitoredTabsObj[String(t.id)]).length;
+          selectAllCheckbox.checked = count === injectableTabs.length;
+          selectAllCheckbox.indeterminate = count > 0 && count < injectableTabs.length;
         });
       });
       // --- end Select All ---
 
-      tabs.forEach(tab => {
+      injectableTabs.forEach(tab => {
         const key = String(tab.id);
         const config = monitoredTabsObj[key];
 

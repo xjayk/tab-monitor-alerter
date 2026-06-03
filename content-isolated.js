@@ -8,7 +8,10 @@ window.addEventListener('message', (event) => {
   } else if (event.data.type === 'DOM_OBSERVER_READY') {
     // MAIN world is ready to receive DOM trigger selectors.
     // tabDomTriggers is keyed by tab ID to prevent cross-tab overwrites.
-    // We resolve our own tab ID via chrome.tabs.getCurrent before reading.
+    // chrome.tabs.getCurrent is used here (available in ISOLATED world content
+    // scripts on injectable pages; not available on chrome:// pages, which are
+    // excluded from the popup list and cannot be monitored).
+    if (!chrome.tabs?.getCurrent) return;
     chrome.tabs.getCurrent((tab) => {
       if (chrome.runtime.lastError || !tab) return;
       const tabId = tab.id;
