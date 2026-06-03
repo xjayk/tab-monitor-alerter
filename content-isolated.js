@@ -1,6 +1,6 @@
 // Post a sentinel so test pages can detect that the content script was injected.
 console.log('[tab-alerter/isolated] script loaded, posting CONTENT_SCRIPT_READY');
-window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, '*');
+window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, window.location.origin);
 
 window.addEventListener('message', (event) => {
   // Log EVERY message before any guard.
@@ -38,15 +38,6 @@ window.addEventListener('message', (event) => {
     chrome.runtime.sendMessage({ type: 'TRIGGER_ALERT' });
 
   } else if (event.data && event.data.type === 'DOM_OBSERVER_READY') {
-// TODO: FIX! Broken by merge conflict resolution. <<<<<<< feat/dynamic-content-script-injection
-    // MAIN world is ready to receive DOM trigger selectors.
-    // chrome.tabs.getCurrent is not available in content scripts — instead
-    // we ask the background to resolve our tab ID and read storage for us.
-    chrome.runtime.sendMessage({ type: 'GET_DOM_TRIGGERS' }, (selectors) => {
-      if (chrome.runtime.lastError) return;
-      if (Array.isArray(selectors) && selectors.length > 0) {
-        window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors }, window.location.origin);
-// TODO: FIX! Broken by merge conflict resolution. =======
     console.log('[tab-alerter/isolated] received DOM_OBSERVER_READY, sending GET_DOM_TRIGGERS to background');
     chrome.runtime.sendMessage({ type: 'GET_DOM_TRIGGERS' }, (selectors) => {
       if (chrome.runtime.lastError) {
@@ -55,8 +46,7 @@ window.addEventListener('message', (event) => {
       }
       console.log('[tab-alerter/isolated] GET_DOM_TRIGGERS response:', selectors);
       if (Array.isArray(selectors) && selectors.length > 0) {
-        window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors }, '*');
-// TODO: FIX! Broken by merge conflict resolution. >>>>>>> trunk
+        window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors }, window.location.origin);
       }
     });
   }
