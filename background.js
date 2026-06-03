@@ -15,8 +15,12 @@ let monitoredTabs = {};
 
 // Selectors are resolved from this map at GET_DOM_TRIGGERS time using the
 // sender's URL — no storage indirection, no async race.
+//
+// 'localhost' is included so test-notify.html works when served via a local
+// HTTP server (e.g. `npx serve .`). Remove before shipping to production.
 const DEFAULT_DOM_TRIGGERS = {
   'www.perplexity.ai': ['button[aria-label="Approve"]'],
+  'localhost': ['button[aria-label="Approve"]'],
 };
 
 // Tracks tab IDs into which content-main.js has been injected.
@@ -247,10 +251,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     clearAlert();
 
   } else if (message.type === 'GET_DOM_TRIGGERS' && sender.tab) {
-    // Resolve selectors directly from the in-memory map using the sender's
-    // URL. This avoids the async storage-write race that caused the original
-    // bug: previously maybeInjectDomTriggers wrote to tabDomTriggers storage
-    // after executeScript fired, so GET_DOM_TRIGGERS always read stale [].
     const selectors = getSelectorsForUrl(sender.tab.url);
     console.log('[tab-alerter/bg] GET_DOM_TRIGGERS for tab', sender.tab.id,
       '| url:', sender.tab.url, '-> selectors:', selectors);

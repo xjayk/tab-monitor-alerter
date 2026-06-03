@@ -6,7 +6,7 @@
   <style>
     body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
     h1 { font-size: 1.3rem; margin-bottom: 0.25rem; }
-    .subtitle { color: #666; font-size: 0.875rem; margin-bottom: 2rem; }
+    .subtitle { color: #666; font-size: 0.875rem; margin-bottom: 1.25rem; }
     section { margin-bottom: 2rem; }
     h2 { font-size: 1rem; border-bottom: 1px solid #ddd; padding-bottom: 0.25rem; }
     button {
@@ -52,12 +52,28 @@
       font-size: 0.85rem;
       padding: 0.6rem 0.9rem;
       border-radius: 6px;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1rem;
       border: 1px solid;
     }
     #cs-status.checking { background: #fff8e1; color: #9a6700; border-color: #f0d080; }
     #cs-status.ok       { background: #d4edda; color: #1a7f37; border-color: #a8d5b5; }
     #cs-status.missing  { background: #fde8e8; color: #b91c1c; border-color: #f0a0a0; }
+
+    /* localhost setup callout */
+    #localhost-note {
+      font-size: 0.82rem;
+      padding: 0.65rem 0.9rem;
+      background: #fffbea;
+      border: 1px solid #e6d46a;
+      border-radius: 6px;
+      margin-bottom: 1.5rem;
+      line-height: 1.55;
+    }
+    #localhost-note code {
+      background: #f0ead0; padding: 0.1rem 0.35rem;
+      border-radius: 3px; font-size: 0.8rem;
+    }
+    #localhost-note.hidden { display: none; }
   </style>
 </head>
 <body>
@@ -67,6 +83,17 @@
     Load this page in a monitored tab to verify each alert trigger path.<br>
     Open the extension popup and enable monitoring for this tab before testing.
   </p>
+
+  <!-- localhost setup note (hidden when already on localhost) -->
+  <div id="localhost-note">
+    ⚠️ <strong>Paths 2 &amp; 3 (DOM triggers) require a localhost URL.</strong><br>
+    The extension’s <code>DEFAULT_DOM_TRIGGERS</code> map only activates the
+    MutationObserver for known hostnames — <code>file://</code> URLs have no
+    hostname and will never match.<br><br>
+    Serve the repo root with a local HTTP server and open this page via
+    <code>http://localhost:&lt;PORT&gt;/tests/manual/test-notify.html</code>:<br>
+    <code>npx serve .</code> &nbsp;–&nbsp; then navigate to the printed localhost URL.
+  </div>
 
   <!-- Content-script injection status -->
   <div id="cs-status" class="checking">
@@ -104,9 +131,10 @@
   <section>
     <h2>Path 2 — DOM mutation: new node (childList)</h2>
     <p>Appends a <code>&lt;button aria-label="Approve"&gt;</code> — the selector
-    in <code>DEFAULT_DOM_TRIGGERS</code> for perplexity.ai.<br>
-    <strong>Expected:</strong> alert fires. If it doesn&rsquo;t, the
-    handshake or selector is broken.</p>
+    in <code>DEFAULT_DOM_TRIGGERS</code> for <code>localhost</code> and
+    <code>perplexity.ai</code>.<br>
+    <strong>Expected:</strong> alert fires.<br>
+    <em>Requires localhost — see setup note above.</em></p>
     <button onclick="run(injectMatchingNode)">Inject matching node</button>
     <button onclick="removeInjected()">Remove injected node</button>
     <div id="container"></div>
@@ -114,11 +142,13 @@
 
   <!-- Path 3 -->
   <section>
-    <h2>Path 3 — DOM mutation: attribute change (known gap ⚠️)</h2>
-    <p>Creates a button then sets <code>aria-label="Approve"</code> on it.
-    The MutationObserver only watches <code>addedNodes</code>, so this
-    <strong>should NOT alert</strong> until <code>attributes: true</code>
-    is added to the observer config.</p>
+    <h2>Path 3 — DOM mutation: attribute change</h2>
+    <p>Creates a button node, then sets <code>aria-label="Approve"</code> on it
+    as a separate operation. The MutationObserver watches both
+    <code>childList</code> and <code>attributes</code> (with a tight
+    <code>attributeFilter</code>), so this should be caught.<br>
+    <strong>Expected:</strong> alert fires.<br>
+    <em>Requires localhost — see setup note above.</em></p>
     <button onclick="run(mutateAttribute)">Mutate aria-label on existing node</button>
   </section>
 
@@ -143,11 +173,16 @@
     let mutatingNode = null;
     let countdownTimer = null;
 
+    // Hide the localhost note when already running on localhost.
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+      document.getElementById('localhost-note').classList.add('hidden');
+    }
+
     // -----------------------------------------------------------------------
     // Content-script injection detection
     // content-isolated.js posts CONTENT_SCRIPT_READY immediately on injection.
     // If we don't see it within 1 second this page is running without content
-    // scripts — most likely because "Allow access to file URLs" is not enabled.
+    // scripts.
     // -----------------------------------------------------------------------
     const csStatus = document.getElementById('cs-status');
     let csReady = false;
@@ -165,11 +200,12 @@
       if (!csReady) {
         csStatus.className = 'missing';
         csStatus.innerHTML =
-          '❌ <strong>Extension content scripts are NOT injected into this file:// page.</strong>' +
-          ' Paths 1 (Notification) and 2 (DOM observer) will not work.<br>' +
-          '&nbsp;&nbsp;→ Go to <code>chrome://extensions</code>, find <strong>Tab Monitor &amp; Alerter</strong>,' +
-          ' click <strong>Details</strong>, and enable <strong>"Allow access to file URLs"</strong>.' +
-          ' Then reload this page.';
+          '❌ <strong>Extension content scripts are NOT injected into this page.</strong>' +
+          ' Paths 1–3 will not work.<br>' +
+          '&nbsp;&nbsp;→ If opening via <code>file://</code>: go to <code>chrome://extensions</code>,' +
+          ' find <strong>Tab Monitor &amp; Alerter</strong>, click <strong>Details</strong>,' +
+          ' and enable <strong>"Allow access to file URLs"</strong>. Then reload.<br>' +
+          '&nbsp;&nbsp;→ If already on localhost: reload the extension at <code>chrome://extensions</code>.';
       }
     }, 1000);
 
@@ -315,7 +351,7 @@
         log('Created base node (no aria-label yet)');
       }
       mutatingNode.setAttribute('aria-label', 'Approve');
-      log('Set aria-label="Approve" on existing node (expect NO alert with current config)', 'warn');
+      log('Set aria-label="Approve" on existing node');
     }
 
     // -----------------------------------------------------------------------
