@@ -57,23 +57,16 @@ document.addEventListener('DOMContentLoaded', () => {
         title.textContent = tab.title;
         title.title = tab.title;
 
-        const patternInput = document.createElement('input');
-        patternInput.type = 'text';
-        patternInput.className = 'pattern-input';
-        patternInput.placeholder = 'Regex';
-        patternInput.title = 'Alert only when title matches this regex (leave empty for any change)';
-        if (config) patternInput.value = config.pattern || '';
-
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.className = 'toggle';
         checkbox.checked = !!config;
-        patternInput.disabled = !checkbox.checked;
 
         function persist() {
-          patternInput.disabled = !checkbox.checked;
           if (checkbox.checked) {
-            monitoredTabsObj[key] = { pattern: patternInput.value };
+            // Preserve any existing pattern if the tab was already monitored;
+            // default to empty string (match-any) for newly added tabs.
+            monitoredTabsObj[key] = { pattern: config?.pattern || '' };
           } else {
             delete monitoredTabsObj[key];
           }
@@ -81,10 +74,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         checkbox.addEventListener('change', persist);
-        patternInput.addEventListener('change', persist);
 
         item.appendChild(title);
-        item.appendChild(patternInput);
         item.appendChild(checkbox);
         list.appendChild(item);
       });
