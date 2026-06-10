@@ -20,11 +20,13 @@ let alertOnActive = false;
 // Selectors are resolved from this map at GET_DOM_TRIGGERS time using the
 // sender's URL — no storage indirection, no async race.
 //
-// 'localhost' is included so test-notify.html works when served via a local
-// HTTP server (e.g. `npx serve .`). Remove before shipping to production.
+// 'localhost' and '127.0.0.1' are included so test-notify.html works when
+// served via a local HTTP server (e.g. `npx serve .`). Remove before
+// shipping to production.
 const DEFAULT_DOM_TRIGGERS = {
   'www.perplexity.ai': ['button[aria-label="Approve"]'],
   'localhost': ['button[aria-label="Approve"]'],
+  '127.0.0.1': ['button[aria-label="Approve"]'],
 };
 
 // Tracks tab IDs into which content-main.js has been injected.
