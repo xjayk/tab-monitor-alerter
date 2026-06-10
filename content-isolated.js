@@ -1,6 +1,6 @@
 const { name, version, version_name } = chrome.runtime.getManifest();
 const _v = version_name ?? version;
-console.log(`[tab-alerter/isolated] 🔖 ${name} v${_v} loaded`);
+console.log(`[tab-alerter/isolated] \uD83D\uDD16 ${name} v${_v} loaded`);
 
 const targetOrigin = (window.location.origin === 'null' || window.location.protocol === 'file:') ? '*' : window.location.origin;
 window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, targetOrigin);
@@ -63,7 +63,15 @@ window.addEventListener('message', (event) => {
     return;
   }
 
-  if (event.data && event.data.type === 'TAB_ALERTER_NOTIFICATION') {
+  // CS_PING: manual test page handshake — reply with CS_PONG so the page
+  // can confirm content scripts are injected without relying on the
+  // fire-and-forget CONTENT_SCRIPT_READY message (which is always posted
+  // before the page's listener is attached).
+  if (event.data && event.data.type === 'CS_PING') {
+    console.log('[tab-alerter/isolated] CS_PING received, sending CS_PONG');
+    window.postMessage({ type: 'CS_PONG' }, targetOrigin);
+
+  } else if (event.data && event.data.type === 'TAB_ALERTER_NOTIFICATION') {
     console.log('[tab-alerter/isolated] relaying TRIGGER_ALERT to background');
     relaySendMessage({ type: 'TRIGGER_ALERT' });
 
