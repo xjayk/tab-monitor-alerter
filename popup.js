@@ -64,18 +64,32 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // --- Global mode banner ---
+      // --- Global mode: show banner only, no checkboxes ---
       if (monitorAllTabs) {
         const banner = document.createElement('div');
         banner.id = 'monitor-all-banner';
         banner.style.cssText =
-          'font-size:0.8rem;padding:0.45rem 0.7rem;margin-bottom:0.5rem;' +
+          'font-size:0.8rem;padding:0.45rem 0.7rem;' +
           'background:#d4edda;color:#1a7f37;border:1px solid #a8d5b5;border-radius:5px;';
-        banner.textContent = '✅ Monitoring all tabs globally (see Settings to change)';
+
+        banner.appendChild(document.createTextNode('\u2705 Monitoring all tabs globally \u2014 '));
+
+        const settingsLink = document.createElement('a');
+        settingsLink.href = '#';
+        settingsLink.textContent = 'open Settings to change';
+        settingsLink.style.color = '#1a7f37';
+        settingsLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          chrome.runtime.openOptionsPage();
+        });
+        banner.appendChild(settingsLink);
+
         list.appendChild(banner);
+        // Do not render the Select All row or per-tab checkboxes.
+        return;
       }
 
-      // --- Select All row ---
+      // --- Per-tab mode: Select All row + individual checkboxes ---
       const selectAllRow = document.createElement('div');
       selectAllRow.className = 'select-all-row';
 
@@ -92,8 +106,8 @@ document.addEventListener('DOMContentLoaded', () => {
       list.appendChild(selectAllRow);
 
       const monitoredCount = injectableTabs.filter(t => monitoredTabsObj[String(t.id)]).length;
-      selectAllCheckbox.checked = monitorAllTabs || monitoredCount === injectableTabs.length;
-      selectAllCheckbox.indeterminate = !monitorAllTabs && monitoredCount > 0 && monitoredCount < injectableTabs.length;
+      selectAllCheckbox.checked = monitoredCount === injectableTabs.length;
+      selectAllCheckbox.indeterminate = monitoredCount > 0 && monitoredCount < injectableTabs.length;
 
       selectAllCheckbox.addEventListener('change', () => {
         const checked = selectAllCheckbox.checked;
@@ -140,7 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
         checkbox.type = 'checkbox';
         checkbox.className = 'tab-toggle';
         checkbox.dataset.tabId = key;
-        checkbox.checked = monitorAllTabs || !!config;
+        checkbox.checked = !!config;
 
         function persist() {
           const prev = monitoredTabsObj[key];
