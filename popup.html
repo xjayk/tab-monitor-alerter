@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Tab Monitor & Alerter</title>
+  <title>Tab Monitor &amp; Alerter</title>
   <style>
     body { font-family: sans-serif; width: 340px; padding: 10px; margin: 0; }
     h3 { margin-top: 0; font-size: 16px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
@@ -14,6 +14,19 @@
     .select-all-label { display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-size: 13px; font-weight: 600; }
     .notice { padding: 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px; }
     .warning { background: #FFF3CD; border: 1px solid #FFEAA7; color: #856404; }
+    .popup-footer {
+      display: flex;
+      justify-content: flex-end;
+      padding: 6px 0 2px;
+      border-top: 1px solid #eee;
+      margin-top: 4px;
+    }
+    .settings-link {
+      font-size: 11px; color: #666; text-decoration: none;
+      display: flex; align-items: center; gap: 3px;
+      cursor: pointer; background: none; border: none; padding: 0;
+    }
+    .settings-link:hover { color: #333; }
   </style>
 </head>
 <body>
@@ -21,6 +34,9 @@
   <div id="ui-container" class="hidden">
     <h3>Monitored Tabs</h3>
     <div id="tab-list"></div>
+    <div class="popup-footer">
+      <button class="settings-link" id="open-settings">⚙️ Settings</button>
+    </div>
   </div>
   <script src="popup.js"></script>
 </body>

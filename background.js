@@ -13,6 +13,10 @@ let alertingTabId = null;
 let offscreenCreating = null;
 let monitoredTabs = {};
 
+// When true, alerts fire even if the monitored tab is currently in focus.
+// Controlled by the options page. Default false = original behaviour.
+let alertOnActive = false;
+
 // Selectors are resolved from this map at GET_DOM_TRIGGERS time using the
 // sender's URL — no storage indirection, no async race.
 //
@@ -41,11 +45,13 @@ async function init() {
 
   let res = {};
   try {
-    res = await chrome.storage.local.get(['monitoredTabs']);
+    res = await chrome.storage.local.get(['monitoredTabs', 'alertOnActive']);
   } catch (err) {
-    console.error('[tab-alerter/bg] Failed to read monitoredTabs from storage:', err);
+    console.error('[tab-alerter/bg] Failed to read storage:', err);
   }
   monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
+  alertOnActive = res.alertOnActive === true;
+  console.log('[tab-alerter/bg] alertOnActive:', alertOnActive);
 
   // Prune stale tab IDs and seed lastKnownTitle before any listener fires.
   await cleanupStaleMonitoredTabs();
@@ -171,6 +177,11 @@ chrome.storage.onChanged.addListener((changes) => {
     monitoredTabs = newTabs;
     console.log('[tab-alerter/bg] monitoredTabs updated:', JSON.stringify(monitoredTabs));
   }
+
+  if (changes.alertOnActive) {
+    alertOnActive = changes.alertOnActive.newValue === true;
+    console.log('[tab-alerter/bg] alertOnActive changed:', alertOnActive);
+  }
 });
 
 // 1. Listen for tab updates — handles navigation/re-injection and title changes.
@@ -189,8 +200,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (isNonInjectableUrl(tab?.url)) return;
   const config = monitoredTabs[String(tabId)];
   if (!config) return;
-  if (tab?.active) {
-    console.log('[tab-alerter/bg] onUpdated skipped (tab is active) | tabId:', tabId, '| title:', changeInfo.title);
+  if (tab?.active && !alertOnActive) {
+    console.log('[tab-alerter/bg] onUpdated skipped (tab is active, alertOnActive=false) | tabId:', tabId, '| title:', changeInfo.title);
     return;
   }
   if (!titleMatchesPattern(changeInfo.title, config.pattern)) return;
@@ -236,8 +247,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         const tab = await chrome.tabs.get(tabId);
-        if (tab?.active) {
-          console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (tab is active) | tabId:', tabId);
+        if (tab?.active && !alertOnActive) {
+          console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (tab is active, alertOnActive=false) | tabId:', tabId);
           return;
         }
         console.log('[tab-alerter/bg] TRIGGER_ALERT accepted for tab:', tabId);

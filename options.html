@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Tab Monitor &amp; Alerter — Settings</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 480px;
+      margin: 2rem auto;
+      padding: 0 1.25rem;
+      color: #1a1a1a;
+    }
+    h1 { font-size: 1.2rem; margin-bottom: 1.5rem; border-bottom: 1px solid #ddd; padding-bottom: 0.5rem; }
+    .setting {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1.5rem;
+      padding: 1rem 0;
+      border-bottom: 1px solid #eee;
+    }
+    .setting-text { flex: 1; }
+    .setting-label { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.2rem; }
+    .setting-desc { font-size: 0.82rem; color: #555; line-height: 1.45; }
+    /* Toggle switch */
+    .switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; margin-top: 1px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0;
+      background: #ccc; border-radius: 24px;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .slider:before {
+      content: ''; position: absolute;
+      height: 18px; width: 18px; left: 3px; bottom: 3px;
+      background: white; border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    input:checked + .slider { background: #2563eb; }
+    input:checked + .slider:before { transform: translateX(18px); }
+    #save-status {
+      font-size: 0.8rem; color: #1a7f37;
+      min-height: 1.2rem; margin-top: 1.25rem;
+      transition: opacity 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <h1>Tab Monitor &amp; Alerter — Settings</h1>
+
+  <div class="setting">
+    <div class="setting-text">
+      <div class="setting-label">Alert on active tab</div>
+      <div class="setting-desc">
+        By default, alerts are suppressed when you are already looking at the
+        monitored tab (title change, Notification, or DOM trigger). Turn this
+        on to receive badge and audio alerts even when the tab is in focus.
+      </div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="alert-on-active" />
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div id="save-status"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,4 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
+  // Settings link
+  document.getElementById('open-settings').addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+  });
+
   // 1. Check for Active Alert Navigation
   chrome.storage.local.get(['alertingTabId', 'monitoredTabs', 'audioBlocked'], (data) => {
     if (data.alertingTabId) {
@@ -45,10 +50,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const list = document.getElementById('tab-list');
 
       // Filter out tabs where content scripts cannot be injected.
-      // chrome:// and chrome-extension:// pages are excluded: Chrome blocks
-      // content script injection into them, so monitoring would only produce
-      // title-change alerts with no Notification or DOM-trigger support, and
-      // would cause chrome.tabs.getCurrent errors in content-isolated.js.
       const injectableTabs = tabs.filter(tab =>
         tab.url &&
         !tab.url.startsWith('chrome://') &&
@@ -68,8 +69,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const selectAllCheckbox = document.createElement('input');
       selectAllCheckbox.type = 'checkbox';
       selectAllCheckbox.id = 'select-all';
-      // Note: selectAllCheckbox intentionally does NOT carry .tab-toggle so
-      // querySelectorAll('.tab-toggle') counts only per-tab checkboxes.
 
       const selectAllLabel = document.createElement('label');
       selectAllLabel.className = 'select-all-label';
@@ -85,28 +84,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
       selectAllCheckbox.addEventListener('change', () => {
         const checked = selectAllCheckbox.checked;
-        // Snapshot state before mutation for rollback on failure.
         const prevState = { ...monitoredTabsObj };
 
         injectableTabs.forEach(t => {
           const key = String(t.id);
           if (checked) {
-            // Preserve any existing pattern — do not overwrite with empty string.
             monitoredTabsObj[key] = monitoredTabsObj[key] ?? { pattern: '' };
           } else {
             delete monitoredTabsObj[key];
           }
         });
 
-        // Fast-path DOM update: directly sets checkbox state without going
-        // through persist() — intentional, as there is no per-tab side-effect
-        // needed here beyond the bulk storage write below.
         list.querySelectorAll('.tab-toggle').forEach(cb => { cb.checked = checked; });
         selectAllCheckbox.indeterminate = false;
 
         chrome.storage.local.set({ monitoredTabs: monitoredTabsObj }).catch((err) => {
           console.error('Select All storage write failed, rolling back:', err);
-          // Restore in-memory state and DOM to match pre-mutation state.
           Object.keys(monitoredTabsObj).forEach(k => delete monitoredTabsObj[k]);
           Object.assign(monitoredTabsObj, prevState);
           list.querySelectorAll('.tab-toggle').forEach(cb => {
@@ -117,7 +110,6 @@ document.addEventListener('DOMContentLoaded', () => {
           selectAllCheckbox.indeterminate = count > 0 && count < injectableTabs.length;
         });
       });
-      // --- end Select All ---
 
       injectableTabs.forEach(tab => {
         const key = String(tab.id);
@@ -138,26 +130,22 @@ document.addEventListener('DOMContentLoaded', () => {
         checkbox.checked = !!config;
 
         function persist() {
-          // Snapshot for rollback.
           const prev = monitoredTabsObj[key];
           const hadKey = key in monitoredTabsObj;
 
           if (checkbox.checked) {
-            // Preserve any existing pattern if re-checking an already-monitored tab.
             monitoredTabsObj[key] = { pattern: config?.pattern || '' };
           } else {
             delete monitoredTabsObj[key];
           }
 
           chrome.storage.local.set({ monitoredTabs: monitoredTabsObj }).then(() => {
-            // Sync Select All state after confirmed write.
             const toggles = list.querySelectorAll('.tab-toggle');
             const checkedCount = [...toggles].filter(cb => cb.checked).length;
             selectAllCheckbox.checked = checkedCount === toggles.length;
             selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < toggles.length;
           }).catch((err) => {
             console.error('persist() storage write failed, rolling back:', err);
-            // Revert in-memory state and checkbox.
             if (hadKey) {
               monitoredTabsObj[key] = prev;
             } else {
