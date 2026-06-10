@@ -20,6 +20,7 @@ export default [
       'content-isolated.js',
       'popup.js',
       'offscreen.js',
+      'options.js',
       'src/**/*.js',
     ],
     languageOptions: {
