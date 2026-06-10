@@ -87,7 +87,7 @@
   <!-- localhost setup note (hidden when already on localhost) -->
   <div id="localhost-note">
     ⚠️ <strong>Paths 2 &amp; 3 (DOM triggers) require a localhost URL.</strong><br>
-    The extension’s <code>DEFAULT_DOM_TRIGGERS</code> map only activates the
+    The extension's <code>DEFAULT_DOM_TRIGGERS</code> map only activates the
     MutationObserver for known hostnames — <code>file://</code> URLs have no
     hostname and will never match.<br><br>
     Serve the repo root with a local HTTP server and open this page via
@@ -179,22 +179,43 @@
     }
 
     // -----------------------------------------------------------------------
-    // Content-script injection detection
-    // content-isolated.js posts CONTENT_SCRIPT_READY immediately on injection.
-    // If we don't see it within 1 second this page is running without content
-    // scripts.
+    // Content-script injection detection — ping/pong handshake
+    //
+    // CONTENT_SCRIPT_READY is posted by content-isolated.js at script start,
+    // before this page's listener is attached — so it is always lost on first
+    // load and cannot be used reliably on its own.
+    //
+    // Instead we use a two-way CS_PING / CS_PONG handshake:
+    //   1. Page posts CS_PING after DOMContentLoaded.
+    //   2. content-isolated.js listens for CS_PING and replies with CS_PONG.
+    //   3. Page marks injection confirmed on CS_PONG.
+    //
+    // CONTENT_SCRIPT_READY is still accepted as a fallback for the rare case
+    // where the content script loads after the ping is sent (e.g. slow SW
+    // cold-start that triggers re-injection).
+    //
+    // Timeout extended to 2500ms to cover SW cold-start latency.
     // -----------------------------------------------------------------------
     const csStatus = document.getElementById('cs-status');
     let csReady = false;
+    const targetOrigin = (location.protocol === 'file:' || location.origin === 'null') ? '*' : location.origin;
+
+    function markCsReady() {
+      if (csReady) return;
+      csReady = true;
+      csStatus.className = 'ok';
+      csStatus.textContent = '✅ Extension content scripts are injected — all test paths are active.';
+    }
 
     window.addEventListener('message', (event) => {
       if (event.source !== window) return;
-      if (event.data?.type === 'CONTENT_SCRIPT_READY') {
-        csReady = true;
-        csStatus.className = 'ok';
-        csStatus.textContent = '✅ Extension content scripts are injected — all test paths are active.';
+      if (event.data?.type === 'CONTENT_SCRIPT_READY' || event.data?.type === 'CS_PONG') {
+        markCsReady();
       }
     });
+
+    // Send ping after DOM is ready so the listener above is attached first.
+    window.postMessage({ type: 'CS_PING' }, targetOrigin);
 
     setTimeout(() => {
       if (!csReady) {
@@ -207,7 +228,7 @@
           ' and enable <strong>"Allow access to file URLs"</strong>. Then reload.<br>' +
           '&nbsp;&nbsp;→ If already on localhost: reload the extension at <code>chrome://extensions</code>.';
       }
-    }, 1000);
+    }, 2500);
 
     // -----------------------------------------------------------------------
     // Options — persist across reloads
@@ -258,10 +279,6 @@
 
     // -----------------------------------------------------------------------
     // run(fn) — wraps every test action with delay + tab-switch options
-    //
-    // window.open() MUST be called synchronously here (inside the click
-    // handler) — browsers block window.open() inside setTimeout as it is
-    // no longer considered a direct user gesture.
     // -----------------------------------------------------------------------
     function run(fn) {
       if (countdownTimer !== null) {
@@ -274,8 +291,6 @@
       const useSwitch = optSwitch.checked;
       const seconds   = Math.max(1, parseInt(delayInput.value, 10) || 5);
 
-      // Open the blank tab immediately (synchronous user gesture) so this
-      // tab is already in the background before the countdown starts.
       if (useSwitch) {
         window.open('about:blank', '_blank');
         log('Opened blank tab — this tab is now in background');
