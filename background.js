@@ -74,11 +74,6 @@ async function init() {
   monitorAllTabs = res.monitorAllTabs === true;
   console.log('[tab-alerter/bg] alertOnActive:', alertOnActive, '| monitorAllTabs:', monitorAllTabs);
 
-  // Defer cleanup to avoid racing against session-restored tabs.
-  setTimeout(() => {
-    cleanupStaleMonitoredTabs().catch(console.error);
-  }, CLEANUP_DELAY_MS);
-
   console.log('[tab-alerter/bg] init complete, monitoredTabs:', JSON.stringify(monitoredTabs));
 
   // Re-inject content-main.js into each surviving monitored tab on SW restart.
@@ -193,6 +188,20 @@ function getSelectorsForUrl(url) {
     return [];
   }
 }
+
+// Schedule stale-tab cleanup on browser startup and extension install/update.
+// These are the only times stale IDs can appear; running on every SW wake-up
+// would be redundant.
+chrome.runtime.onStartup.addListener(() => {
+  setTimeout(() => {
+    cleanupStaleMonitoredTabs().catch(console.error);
+  }, CLEANUP_DELAY_MS);
+});
+chrome.runtime.onInstalled.addListener(() => {
+  setTimeout(() => {
+    cleanupStaleMonitoredTabs().catch(console.error);
+  }, CLEANUP_DELAY_MS);
+});
 
 // ---------------------------------------------------------------------------
 // Event listeners
