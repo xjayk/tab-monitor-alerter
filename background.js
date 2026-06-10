@@ -100,7 +100,6 @@ async function init() {
 void init();
 
 async function cleanupStaleMonitoredTabs() {
-  const keys = Object.keys(monitoredTabs);
   const allTabs = await chrome.tabs.query({});
   const liveIds = new Set();
 
@@ -112,19 +111,31 @@ async function cleanupStaleMonitoredTabs() {
     }
   }
 
+  // Read the freshest data from storage to avoid racing with concurrent
+  // updates that may have occurred during the init delay.
+  let res;
+  try {
+    res = await chrome.storage.local.get('monitoredTabs');
+  } catch (err) {
+    console.error('[tab-alerter/bg] Failed to read storage for cleanup:', err);
+    return;
+  }
+  const currentMonitored = migrateMonitoredTabs(res.monitoredTabs);
+  const keys = Object.keys(currentMonitored);
   if (keys.length === 0) return;
 
   let changed = false;
+  const updatedMonitored = { ...currentMonitored };
   for (const key of keys) {
     if (!liveIds.has(Number(key))) {
-      delete monitoredTabs[key];
+      delete updatedMonitored[key];
       changed = true;
     }
   }
 
   if (changed) {
-    await chrome.storage.local.set({ monitoredTabs });
-    console.log('[tab-alerter/bg] cleaned up stale monitoredTabs, remaining:', JSON.stringify(monitoredTabs));
+    await chrome.storage.local.set({ monitoredTabs: updatedMonitored });
+    console.log('[tab-alerter/bg] cleaned up stale monitoredTabs, remaining:', JSON.stringify(updatedMonitored));
   }
 }
 
