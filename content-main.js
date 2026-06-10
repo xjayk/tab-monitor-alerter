@@ -44,15 +44,29 @@
     }
   }
 
-  // Derive the list of attribute names referenced by the active selectors
-  // so we can pass a tight attributeFilter and avoid observing every
-  // attribute on every element in the subtree.
+  // Derive the list of attribute names referenced by the active selectors so
+  // we can pass a tight attributeFilter and avoid observing every attribute on
+  // every element in the subtree.
+  //
+  // Handles three notations:
+  //   [attr=...] / [attr]  → extracts the attribute name directly
+  //   .className           → adds 'class' (dynamic class sets are attribute mutations)
+  //   #someId              → adds 'id' (dynamic id sets are attribute mutations)
   function attributeFilterFromSelectors(selectors) {
     const attrs = new Set();
     for (const selector of selectors) {
+      // Bracket notation: [aria-label], [data-foo], etc.
       const matches = selector.matchAll(/\[([\w-]+)/g);
       for (const m of matches) {
         attrs.add(m[1]);
+      }
+      // Class notation: .approve, .some-class
+      if (selector.includes('.')) {
+        attrs.add('class');
+      }
+      // ID notation: #approve, #some-id
+      if (selector.includes('#')) {
+        attrs.add('id');
       }
     }
     return [...attrs];
