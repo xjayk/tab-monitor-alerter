@@ -226,7 +226,7 @@ chrome.storage.onChanged.addListener((changes) => {
             }
           }
         } catch (err) {
-          console.error('[tab-alerter/bg] Failed to query tabs:', err);
+          console.error('[tab-alerter/bg] Failed to query tabs on monitorAllTabs enable:', err);
         }
       })();
     }
@@ -234,16 +234,16 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 // 1. Listen for tab updates — handles navigation/re-injection and title changes.
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   const isMonitored = !!monitoredTabs[String(tabId)];
 
-  if (changeInfo.status === 'loading' && isMonitored) {
+  if (changeInfo.status === 'loading' && (isMonitored || monitorAllTabs)) {
     removeInjectedTab(tabId);
   }
 
   if (changeInfo.status === 'complete') {
     if (isMonitored || monitorAllTabs) {
-      if (!isNonInjectableUrl(tab.url)) {
+      if (!isNonInjectableUrl(tab?.url)) {
         // Re-register on navigation so fresh content script gets injected.
         removeInjectedTab(tabId);
         injectMonitor(tabId).catch(console.error);
@@ -259,15 +259,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!config && !monitorAllTabs) return;
 
   // Re-read settings from storage to avoid stale SW cold-start values.
-  getSettings().then(({ alertOnActive: aoa }) => {
-    if (tab?.active && !aoa) {
-      console.log('[tab-alerter/bg] onUpdated skipped (tab is active, alertOnActive=false) | tabId:', tabId, '| title:', changeInfo.title);
-      return;
-    }
-    if (config && !titleMatchesPattern(changeInfo.title, config.pattern)) return;
-    console.log('[tab-alerter/bg] onUpdated triggering alert | tabId:', tabId, '| title:', changeInfo.title);
-    triggerAlert(tabId);
-  });
+  const { alertOnActive: aoa } = await getSettings();
+  if (tab?.active && !aoa) {
+    console.log('[tab-alerter/bg] onUpdated skipped (tab is active, alertOnActive=false) | tabId:', tabId, '| title:', changeInfo.title);
+    return;
+  }
+  if (config && !titleMatchesPattern(changeInfo.title, config.pattern)) return;
+  console.log('[tab-alerter/bg] onUpdated triggering alert | tabId:', tabId, '| title:', changeInfo.title);
+  triggerAlert(tabId);
 });
 
 // 2. Catch-up check on tab activation.
