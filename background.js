@@ -1,6 +1,7 @@
 import { shouldDebounce, titleMatchesPattern, migrateMonitoredTabs } from './src/utils.js';
 
 const DEBOUNCE_MS = 1000;
+const CLEANUP_DELAY_MS = 5000;
 const lastAlertTime = {};
 
 // Tracks the last title we saw per tab so onActivated can detect
@@ -73,7 +74,10 @@ async function init() {
   monitorAllTabs = res.monitorAllTabs === true;
   console.log('[tab-alerter/bg] alertOnActive:', alertOnActive, '| monitorAllTabs:', monitorAllTabs);
 
-  await cleanupStaleMonitoredTabs();
+  // Defer cleanup to avoid racing against session-restored tabs.
+  setTimeout(() => {
+    cleanupStaleMonitoredTabs().catch(console.error);
+  }, CLEANUP_DELAY_MS);
 
   console.log('[tab-alerter/bg] init complete, monitoredTabs:', JSON.stringify(monitoredTabs));
 
