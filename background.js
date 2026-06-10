@@ -13,16 +13,17 @@ let alertingTabId = null;
 let offscreenCreating = null;
 let monitoredTabs = {};
 
-// When true, alerts fire even if the monitored tab is currently in focus.
-// Controlled by the options page. Default false = original behaviour.
+// Cached settings — kept in sync via storage.onChanged.
+// IMPORTANT: always re-read from storage inside alert guards (see
+// getSettings()) to avoid stale values on SW cold-start.
 let alertOnActive = false;
+let monitorAllTabs = false;
 
 // Selectors are resolved from this map at GET_DOM_TRIGGERS time using the
 // sender's URL — no storage indirection, no async race.
 //
 // 'localhost' and '127.0.0.1' are included so test-notify.html works when
-// served via a local HTTP server (e.g. `npx serve .`). Remove before
-// shipping to production.
+// served via a local HTTP server (e.g. `npx serve .`).
 const DEFAULT_DOM_TRIGGERS = {
   'www.perplexity.ai': ['button[aria-label="Approve"]'],
   'localhost': ['button[aria-label="Approve"]'],
@@ -41,28 +42,54 @@ function isNonInjectableUrl(url) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Read live settings from storage — used inside alert guards so that a
+// cold-started SW never acts on a stale in-memory default.
+// ---------------------------------------------------------------------------
+async function getSettings() {
+  try {
+    const data = await chrome.storage.local.get(['alertOnActive', 'monitorAllTabs']);
+    return {
+      alertOnActive: data.alertOnActive === true,
+      monitorAllTabs: data.monitorAllTabs === true,
+    };
+  } catch {
+    return { alertOnActive, monitorAllTabs };
+  }
+}
+
 async function init() {
   const { name, version, version_name } = chrome.runtime.getManifest();
   console.log(`[tab-alerter/bg] 🔖 ${name} v${version_name ?? version} (ext: ${chrome.runtime.id})`);
 
   let res = {};
   try {
-    res = await chrome.storage.local.get(['monitoredTabs', 'alertOnActive']);
+    res = await chrome.storage.local.get(['monitoredTabs', 'alertOnActive', 'monitorAllTabs']);
   } catch (err) {
     console.error('[tab-alerter/bg] Failed to read storage:', err);
   }
   monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
   alertOnActive = res.alertOnActive === true;
-  console.log('[tab-alerter/bg] alertOnActive:', alertOnActive);
+  monitorAllTabs = res.monitorAllTabs === true;
+  console.log('[tab-alerter/bg] alertOnActive:', alertOnActive, '| monitorAllTabs:', monitorAllTabs);
 
-  // Prune stale tab IDs and seed lastKnownTitle before any listener fires.
   await cleanupStaleMonitoredTabs();
 
   console.log('[tab-alerter/bg] init complete, monitoredTabs:', JSON.stringify(monitoredTabs));
 
   // Re-inject content-main.js into each surviving monitored tab on SW restart.
-  for (const key of Object.keys(monitoredTabs)) {
-    injectMonitor(Number(key)).catch(console.error);
+  // When monitorAllTabs is on also inject into every current tab.
+  if (monitorAllTabs) {
+    const allTabs = await chrome.tabs.query({ status: 'complete' });
+    for (const tab of allTabs) {
+      if (tab.id && !isNonInjectableUrl(tab.url)) {
+        injectMonitor(tab.id).catch(console.error);
+      }
+    }
+  } else {
+    for (const key of Object.keys(monitoredTabs)) {
+      injectMonitor(Number(key)).catch(console.error);
+    }
   }
 }
 
@@ -184,16 +211,44 @@ chrome.storage.onChanged.addListener((changes) => {
     alertOnActive = changes.alertOnActive.newValue === true;
     console.log('[tab-alerter/bg] alertOnActive changed:', alertOnActive);
   }
+
+  if (changes.monitorAllTabs) {
+    monitorAllTabs = changes.monitorAllTabs.newValue === true;
+    console.log('[tab-alerter/bg] monitorAllTabs changed:', monitorAllTabs);
+    // When enabling, inject into all current complete tabs immediately.
+    if (monitorAllTabs) {
+      (async () => {
+        try {
+          const tabs = await chrome.tabs.query({ status: 'complete' });
+          for (const tab of tabs) {
+            if (tab.id && !isNonInjectableUrl(tab?.url)) {
+              await injectMonitor(tab.id).catch(console.error);
+            }
+          }
+        } catch (err) {
+          console.error('[tab-alerter/bg] Failed to query tabs on monitorAllTabs enable:', err);
+        }
+      })();
+    }
+  }
 });
 
 // 1. Listen for tab updates — handles navigation/re-injection and title changes.
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'loading' && monitoredTabs[String(tabId)]) {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  const isMonitored = !!monitoredTabs[String(tabId)];
+
+  if (changeInfo.status === 'loading' && (isMonitored || monitorAllTabs)) {
     removeInjectedTab(tabId);
   }
 
-  if (changeInfo.status === 'complete' && monitoredTabs[String(tabId)]) {
-    injectMonitor(tabId).catch(console.error);
+  if (changeInfo.status === 'complete') {
+    if (isMonitored || monitorAllTabs) {
+      if (!isNonInjectableUrl(tab?.url)) {
+        // Re-register on navigation so fresh content script gets injected.
+        removeInjectedTab(tabId);
+        injectMonitor(tabId).catch(console.error);
+      }
+    }
   }
 
   if (!changeInfo.title) return;
@@ -201,12 +256,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
   if (isNonInjectableUrl(tab?.url)) return;
   const config = monitoredTabs[String(tabId)];
-  if (!config) return;
-  if (tab?.active && !alertOnActive) {
+  if (!config && !monitorAllTabs) return;
+
+  // Re-read settings from storage to avoid stale SW cold-start values.
+  const { alertOnActive: aoa } = await getSettings();
+  if (tab?.active && !aoa) {
     console.log('[tab-alerter/bg] onUpdated skipped (tab is active, alertOnActive=false) | tabId:', tabId, '| title:', changeInfo.title);
     return;
   }
-  if (!titleMatchesPattern(changeInfo.title, config.pattern)) return;
+  if (config && !titleMatchesPattern(changeInfo.title, config.pattern)) return;
   console.log('[tab-alerter/bg] onUpdated triggering alert | tabId:', tabId, '| title:', changeInfo.title);
   triggerAlert(tabId);
 });
@@ -214,7 +272,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // 2. Catch-up check on tab activation.
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   const config = monitoredTabs[String(tabId)];
-  if (!config) return;
+  if (!config && !monitorAllTabs) return;
 
   chrome.tabs.get(tabId, (tab) => {
     if (chrome.runtime.lastError || !tab || !tab.title) return;
@@ -233,7 +291,7 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
       return;
     }
     console.log('[tab-alerter/bg] onActivated title changed! | tabId:', tabId, '| prev:', prev, '| current:', current);
-    if (!titleMatchesPattern(current, config.pattern)) return;
+    if (config && !titleMatchesPattern(current, config.pattern)) return;
     triggerAlert(tabId);
   });
 });
@@ -242,14 +300,18 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'TRIGGER_ALERT' && sender.tab) {
     const tabId = sender.tab.id;
-    if (!monitoredTabs[String(tabId)]) {
-      console.warn('[tab-alerter/bg] TRIGGER_ALERT received but tab', tabId, 'is NOT in monitoredTabs.');
+    const isMonitored = !!monitoredTabs[String(tabId)];
+    if (!isMonitored && !monitorAllTabs) {
+      console.warn('[tab-alerter/bg] TRIGGER_ALERT received but tab', tabId, 'is NOT monitored.');
       return false;
     }
     (async () => {
       try {
-        const tab = await chrome.tabs.get(tabId);
-        if (tab?.active && !alertOnActive) {
+        const [tab, { alertOnActive: aoa }] = await Promise.all([
+          chrome.tabs.get(tabId),
+          getSettings(),
+        ]);
+        if (tab?.active && !aoa) {
           console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (tab is active, alertOnActive=false) | tabId:', tabId);
           return;
         }

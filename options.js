@@ -1,31 +1,37 @@
 let saveTimer = null;
 
-const toggle = document.getElementById('alert-on-active');
+const toggleActive = document.getElementById('alert-on-active');
+const toggleAllTabs = document.getElementById('monitor-all-tabs');
 const status = document.getElementById('save-status');
 
-async function loadSetting() {
+async function loadSettings() {
   try {
-    const data = await chrome.storage.local.get(['alertOnActive']);
-    toggle.checked = data.alertOnActive === true;
+    const data = await chrome.storage.local.get(['alertOnActive', 'monitorAllTabs']);
+    toggleActive.checked = data.alertOnActive === true;
+    toggleAllTabs.checked = data.monitorAllTabs === true;
   } catch (err) {
-    console.error('[tab-monitor/options] Failed to load alertOnActive:', err);
-    status.textContent = 'Failed to load setting.';
+    console.error('[tab-monitor/options] Failed to load settings:', err);
+    status.textContent = 'Failed to load settings.';
   }
 }
 
-void loadSetting();
+void loadSettings();
 
-async function saveSetting() {
+async function saveSettings() {
   clearTimeout(saveTimer);
   try {
-    await chrome.storage.local.set({ alertOnActive: toggle.checked });
+    await chrome.storage.local.set({
+      alertOnActive: toggleActive.checked,
+      monitorAllTabs: toggleAllTabs.checked,
+    });
     status.textContent = 'Saved.';
   } catch (err) {
-    console.error('[tab-monitor/options] Failed to save alertOnActive:', err);
-    status.textContent = 'Failed to save setting.';
+    console.error('[tab-monitor/options] Failed to save settings:', err);
+    status.textContent = 'Failed to save settings.';
     return;
   }
   saveTimer = setTimeout(() => { status.textContent = ''; }, 1500);
 }
 
-toggle.addEventListener('change', saveSetting);
+toggleActive.addEventListener('change', saveSettings);
+toggleAllTabs.addEventListener('change', saveSettings);

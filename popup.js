@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 1. Check for Active Alert Navigation
-  chrome.storage.local.get(['alertingTabId', 'monitoredTabs', 'audioBlocked'], (data) => {
+  chrome.storage.local.get(['alertingTabId', 'monitoredTabs', 'audioBlocked', 'monitorAllTabs'], (data) => {
     if (data.alertingTabId) {
       chrome.tabs.get(data.alertingTabId, (tab) => {
         if (chrome.runtime.lastError || !tab) {
@@ -40,6 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 3. Render standard UI if no alert is active
     document.getElementById('ui-container').classList.remove('hidden');
 
+    const monitorAllTabs = data.monitorAllTabs === true;
+
     // monitoredTabs is stored as a dict: { "tabId": { pattern: "" } }
     const raw = data.monitoredTabs;
     const monitoredTabsObj = raw && typeof raw === 'object' && !Array.isArray(raw)
@@ -62,7 +64,32 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // --- Select All row ---
+      // --- Global mode: show banner only, no checkboxes ---
+      if (monitorAllTabs) {
+        const banner = document.createElement('div');
+        banner.id = 'monitor-all-banner';
+        banner.style.cssText =
+          'font-size:0.8rem;padding:0.45rem 0.7rem;' +
+          'background:#d4edda;color:#1a7f37;border:1px solid #a8d5b5;border-radius:5px;';
+
+        banner.appendChild(document.createTextNode('\u2705 Monitoring all tabs globally \u2014 '));
+
+        const settingsLink = document.createElement('a');
+        settingsLink.href = '#';
+        settingsLink.textContent = 'open Settings to change';
+        settingsLink.style.color = '#1a7f37';
+        settingsLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          chrome.runtime.openOptionsPage();
+        });
+        banner.appendChild(settingsLink);
+
+        list.appendChild(banner);
+        // Do not render the Select All row or per-tab checkboxes.
+        return;
+      }
+
+      // --- Per-tab mode: Select All row + individual checkboxes ---
       const selectAllRow = document.createElement('div');
       selectAllRow.className = 'select-all-row';
 
