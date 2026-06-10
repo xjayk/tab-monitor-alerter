@@ -51,6 +51,21 @@
 
   <div class="setting">
     <div class="setting-text">
+      <div class="setting-label">Monitor all tabs automatically</div>
+      <div class="setting-desc">
+        When on, every tab is monitored without needing to tick individual tabs
+        in the popup. Title changes, Notification intercepts, and DOM triggers
+        will fire alerts for any tab. Independent of the per-tab popup selection.
+      </div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="monitor-all-tabs" />
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="setting">
+    <div class="setting-text">
       <div class="setting-label">Alert on active tab</div>
       <div class="setting-desc">
         By default, alerts are suppressed when you are already looking at the
