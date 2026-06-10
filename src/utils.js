@@ -7,6 +7,41 @@
  */
 
 /**
+ * Storage keys for per-type notification monitoring toggles.
+ * Each key maps to a boolean in chrome.storage.local.
+ */
+export const MONITOR_TYPE_KEYS = {
+  TITLE: 'monitorTitleUpdates',
+  NOTIFICATION: 'monitorWebNotifications',
+  DOM_TRIGGER: 'monitorDomTriggers',
+};
+
+export function getDefaultMonitorTypes() {
+  return {
+    [MONITOR_TYPE_KEYS.TITLE]: true,
+    [MONITOR_TYPE_KEYS.NOTIFICATION]: true,
+    [MONITOR_TYPE_KEYS.DOM_TRIGGER]: true,
+  };
+}
+
+/**
+ * Normalizes a raw value from storage into a guaranteed-valid monitor types map.
+ * Any missing or non-boolean key falls back to `true` (enabled).
+ *
+ * @param {Object|null|undefined} raw - Raw value from chrome.storage.local
+ * @returns {Object} Map of MONITOR_TYPE_KEYS values to booleans
+ */
+export function normalizeMonitorTypes(raw) {
+  const defaults = getDefaultMonitorTypes();
+  if (!raw || typeof raw !== 'object') return { ...defaults };
+  const result = {};
+  for (const key of Object.keys(defaults)) {
+    result[key] = key in raw ? raw[key] === true : defaults[key];
+  }
+  return result;
+}
+
+/**
  * Determines whether an alert for a given tab should be suppressed
  * because one was already fired within the debounce window.
  *

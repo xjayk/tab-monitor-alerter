@@ -4,6 +4,9 @@ import {
   titleMatchesPattern,
   filterStaleTabs,
   migrateMonitoredTabs,
+  MONITOR_TYPE_KEYS,
+  getDefaultMonitorTypes,
+  normalizeMonitorTypes,
 } from '../src/utils.js';
 
 // ---------------------------------------------------------------------------
@@ -171,5 +174,97 @@ describe('migrateMonitoredTabs', () => {
     const result = migrateMonitoredTabs([42]);
     expect(Object.keys(result)).toEqual(['42']);
     expect(result['42']).toEqual({ pattern: '' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MONITOR_TYPE_KEYS
+// ---------------------------------------------------------------------------
+describe('MONITOR_TYPE_KEYS', () => {
+  it('defines all three type keys', () => {
+    expect(MONITOR_TYPE_KEYS.TITLE).toBe('monitorTitleUpdates');
+    expect(MONITOR_TYPE_KEYS.NOTIFICATION).toBe('monitorWebNotifications');
+    expect(MONITOR_TYPE_KEYS.DOM_TRIGGER).toBe('monitorDomTriggers');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getDefaultMonitorTypes
+// ---------------------------------------------------------------------------
+describe('getDefaultMonitorTypes', () => {
+  it('returns all types enabled by default', () => {
+    const defaults = getDefaultMonitorTypes();
+    expect(defaults[MONITOR_TYPE_KEYS.TITLE]).toBe(true);
+    expect(defaults[MONITOR_TYPE_KEYS.NOTIFICATION]).toBe(true);
+    expect(defaults[MONITOR_TYPE_KEYS.DOM_TRIGGER]).toBe(true);
+  });
+
+  it('returns a new object each call (no shared reference)', () => {
+    expect(getDefaultMonitorTypes()).not.toBe(getDefaultMonitorTypes());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeMonitorTypes
+// ---------------------------------------------------------------------------
+describe('normalizeMonitorTypes', () => {
+  it('returns all true when raw is null', () => {
+    const result = normalizeMonitorTypes(null);
+    expect(result[MONITOR_TYPE_KEYS.TITLE]).toBe(true);
+    expect(result[MONITOR_TYPE_KEYS.NOTIFICATION]).toBe(true);
+    expect(result[MONITOR_TYPE_KEYS.DOM_TRIGGER]).toBe(true);
+  });
+
+  it('returns all true when raw is undefined', () => {
+    expect(normalizeMonitorTypes(undefined)).toEqual(getDefaultMonitorTypes());
+  });
+
+  it('returns all true when raw is not an object', () => {
+    expect(normalizeMonitorTypes('bad')).toEqual(getDefaultMonitorTypes());
+  });
+
+  it('returns all true when raw is an empty object', () => {
+    const result = normalizeMonitorTypes({});
+    expect(result[MONITOR_TYPE_KEYS.TITLE]).toBe(true);
+    expect(result[MONITOR_TYPE_KEYS.NOTIFICATION]).toBe(true);
+    expect(result[MONITOR_TYPE_KEYS.DOM_TRIGGER]).toBe(true);
+  });
+
+  it('preserves explicit true values', () => {
+    const result = normalizeMonitorTypes({
+      [MONITOR_TYPE_KEYS.TITLE]: true,
+      [MONITOR_TYPE_KEYS.NOTIFICATION]: true,
+      [MONITOR_TYPE_KEYS.DOM_TRIGGER]: true,
+    });
+    expect(result).toEqual(getDefaultMonitorTypes());
+  });
+
+  it('respects false values for specific types', () => {
+    const result = normalizeMonitorTypes({
+      [MONITOR_TYPE_KEYS.TITLE]: false,
+      [MONITOR_TYPE_KEYS.NOTIFICATION]: true,
+      [MONITOR_TYPE_KEYS.DOM_TRIGGER]: false,
+    });
+    expect(result[MONITOR_TYPE_KEYS.TITLE]).toBe(false);
+    expect(result[MONITOR_TYPE_KEYS.NOTIFICATION]).toBe(true);
+    expect(result[MONITOR_TYPE_KEYS.DOM_TRIGGER]).toBe(false);
+  });
+
+  it('treats non-boolean truthy values as false (strict equality)', () => {
+    const result = normalizeMonitorTypes({
+      [MONITOR_TYPE_KEYS.TITLE]: 1,
+      [MONITOR_TYPE_KEYS.NOTIFICATION]: 'yes',
+    });
+    expect(result[MONITOR_TYPE_KEYS.TITLE]).toBe(false);
+    expect(result[MONITOR_TYPE_KEYS.NOTIFICATION]).toBe(false);
+    expect(result[MONITOR_TYPE_KEYS.DOM_TRIGGER]).toBe(true);
+  });
+
+  it('ignores unknown keys in raw value', () => {
+    const result = normalizeMonitorTypes({ someUnknownKey: false });
+    expect(result[MONITOR_TYPE_KEYS.TITLE]).toBe(true);
+    expect(result[MONITOR_TYPE_KEYS.NOTIFICATION]).toBe(true);
+    expect(result[MONITOR_TYPE_KEYS.DOM_TRIGGER]).toBe(true);
+    expect(Object.keys(result)).toEqual(Object.keys(MONITOR_TYPE_KEYS).map(k => MONITOR_TYPE_KEYS[k]));
   });
 });

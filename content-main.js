@@ -13,7 +13,7 @@
 
     window.Notification = function (title, options) {
       console.log('[tab-alerter/main] Notification intercepted, posting TAB_ALERTER_NOTIFICATION. title:', title);
-      window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, targetOrigin);
+      window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION', source: 'notification' }, targetOrigin);
       return new OriginalNotification(title, options);
     };
 
@@ -38,7 +38,7 @@
       if (node.matches(selector) || node.querySelector(selector)) {
         alertedNodes.add(node);
         console.log('[tab-alerter/main] DOM trigger matched selector:', selector, 'node:', node);
-        window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION' }, targetOrigin);
+        window.postMessage({ type: 'TAB_ALERTER_NOTIFICATION', source: 'dom_trigger' }, targetOrigin);
         return;
       }
     }

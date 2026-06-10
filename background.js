@@ -1,4 +1,4 @@
-import { shouldDebounce, titleMatchesPattern, migrateMonitoredTabs } from './src/utils.js';
+import { shouldDebounce, titleMatchesPattern, migrateMonitoredTabs, normalizeMonitorTypes, MONITOR_TYPE_KEYS } from './src/utils.js';
 
 const DEBOUNCE_MS = 1000;
 const lastAlertTime = {};
@@ -18,6 +18,7 @@ let monitoredTabs = {};
 // getSettings()) to avoid stale values on SW cold-start.
 let alertOnActive = false;
 let monitorAllTabs = false;
+let monitorTypes = {};
 
 // Selectors are resolved from this map at GET_DOM_TRIGGERS time using the
 // sender's URL — no storage indirection, no async race.
@@ -48,13 +49,15 @@ function isNonInjectableUrl(url) {
 // ---------------------------------------------------------------------------
 async function getSettings() {
   try {
-    const data = await chrome.storage.local.get(['alertOnActive', 'monitorAllTabs']);
+    const keys = ['alertOnActive', 'monitorAllTabs', ...Object.values(MONITOR_TYPE_KEYS)];
+    const data = await chrome.storage.local.get(keys);
     return {
       alertOnActive: data.alertOnActive === true,
       monitorAllTabs: data.monitorAllTabs === true,
+      monitorTypes: normalizeMonitorTypes(data),
     };
   } catch {
-    return { alertOnActive, monitorAllTabs };
+    return { alertOnActive, monitorAllTabs, monitorTypes: {} };
   }
 }
 
@@ -64,14 +67,16 @@ async function init() {
 
   let res = {};
   try {
-    res = await chrome.storage.local.get(['monitoredTabs', 'alertOnActive', 'monitorAllTabs']);
+    const storageKeys = ['monitoredTabs', 'alertOnActive', 'monitorAllTabs', ...Object.values(MONITOR_TYPE_KEYS)];
+    res = await chrome.storage.local.get(storageKeys);
   } catch (err) {
     console.error('[tab-alerter/bg] Failed to read storage:', err);
   }
   monitoredTabs = migrateMonitoredTabs(res.monitoredTabs);
   alertOnActive = res.alertOnActive === true;
   monitorAllTabs = res.monitorAllTabs === true;
-  console.log('[tab-alerter/bg] alertOnActive:', alertOnActive, '| monitorAllTabs:', monitorAllTabs);
+  monitorTypes = normalizeMonitorTypes(res);
+  console.log('[tab-alerter/bg] alertOnActive:', alertOnActive, '| monitorAllTabs:', monitorAllTabs, '| monitorTypes:', JSON.stringify(monitorTypes));
 
   await cleanupStaleMonitoredTabs();
 
@@ -231,6 +236,22 @@ chrome.storage.onChanged.addListener((changes) => {
       })();
     }
   }
+
+  // Monitor per-type toggles — any of the three keys changed.
+  const typeKeys = Object.values(MONITOR_TYPE_KEYS);
+  const anyTypeChanged = typeKeys.some(k => changes[k]);
+  if (anyTypeChanged) {
+    const snapshot = {};
+    for (const key of typeKeys) {
+      if (changes[key]) {
+        snapshot[key] = changes[key].newValue;
+      } else {
+        snapshot[key] = monitorTypes[key];
+      }
+    }
+    monitorTypes = normalizeMonitorTypes(snapshot);
+    console.log('[tab-alerter/bg] monitorTypes changed:', JSON.stringify(monitorTypes));
+  }
 });
 
 // 1. Listen for tab updates — handles navigation/re-injection and title changes.
@@ -259,7 +280,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!config && !monitorAllTabs) return;
 
   // Re-read settings from storage to avoid stale SW cold-start values.
-  const { alertOnActive: aoa } = await getSettings();
+  const { alertOnActive: aoa, monitorTypes: mt } = await getSettings();
+  if (!mt[MONITOR_TYPE_KEYS.TITLE]) {
+    console.log('[tab-alerter/bg] onUpdated skipped (monitorTitleUpdates=false) | tabId:', tabId);
+    return;
+  }
   if (tab?.active && !aoa) {
     console.log('[tab-alerter/bg] onUpdated skipped (tab is active, alertOnActive=false) | tabId:', tabId, '| title:', changeInfo.title);
     return;
@@ -290,6 +315,10 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
       console.log('[tab-alerter/bg] onActivated no title change | tabId:', tabId, '| title:', current);
       return;
     }
+    if (!monitorTypes[MONITOR_TYPE_KEYS.TITLE]) {
+      console.log('[tab-alerter/bg] onActivated skipped (monitorTitleUpdates=false) | tabId:', tabId);
+      return;
+    }
     console.log('[tab-alerter/bg] onActivated title changed! | tabId:', tabId, '| prev:', prev, '| current:', current);
     if (config && !titleMatchesPattern(current, config.pattern)) return;
     triggerAlert(tabId);
@@ -307,10 +336,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     (async () => {
       try {
-        const [tab, { alertOnActive: aoa }] = await Promise.all([
+        const [tab, { alertOnActive: aoa, monitorTypes: mt }] = await Promise.all([
           chrome.tabs.get(tabId),
           getSettings(),
         ]);
+        // Check the per-type gate based on the message source.
+        const source = message.source || 'notification';
+        if (source === 'notification' && !mt[MONITOR_TYPE_KEYS.NOTIFICATION]) {
+          console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (monitorWebNotifications=false) | tabId:', tabId);
+          return;
+        }
+        if (source === 'dom_trigger' && !mt[MONITOR_TYPE_KEYS.DOM_TRIGGER]) {
+          console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (monitorDomTriggers=false) | tabId:', tabId);
+          return;
+        }
         if (tab?.active && !aoa) {
           console.log('[tab-alerter/bg] TRIGGER_ALERT suppressed (tab is active, alertOnActive=false) | tabId:', tabId);
           return;

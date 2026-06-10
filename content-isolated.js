@@ -72,8 +72,8 @@ window.addEventListener('message', (event) => {
     window.postMessage({ type: 'CS_PONG' }, targetOrigin);
 
   } else if (event.data && event.data.type === 'TAB_ALERTER_NOTIFICATION') {
-    console.log('[tab-alerter/isolated] relaying TRIGGER_ALERT to background');
-    relaySendMessage({ type: 'TRIGGER_ALERT' });
+    console.log('[tab-alerter/isolated] relaying TRIGGER_ALERT to background, source:', event.data.source);
+    relaySendMessage({ type: 'TRIGGER_ALERT', source: event.data.source || 'notification' });
 
   } else if (event.data && event.data.type === 'DOM_OBSERVER_READY') {
     console.log('[tab-alerter/isolated] received DOM_OBSERVER_READY, sending GET_DOM_TRIGGERS to background');
