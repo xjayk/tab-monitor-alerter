@@ -1,10 +1,43 @@
-// Post a sentinel so test pages can detect that the content script was injected.
-console.log('[tab-alerter/isolated] script loaded, posting CONTENT_SCRIPT_READY');
+const { name, version, version_name } = chrome.runtime.getManifest();
+const _v = version_name ?? version;
+console.log(`[tab-alerter/isolated] 🔖 ${name} v${_v} loaded`);
+
 const targetOrigin = (window.location.origin === 'null' || window.location.protocol === 'file:') ? '*' : window.location.origin;
 window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, targetOrigin);
 
+// Guard: chrome.runtime may be undefined in subframes or sandboxed contexts.
+function runtimeAvailable() {
+  return typeof chrome !== 'undefined' && !!chrome.runtime;
+}
+
+function relaySendMessage(msg, responseCallback) {
+  if (!runtimeAvailable()) {
+    console.warn('[tab-alerter/isolated] chrome.runtime unavailable — cannot send:', msg.type);
+    return;
+  }
+  try {
+    if (responseCallback) {
+      chrome.runtime.sendMessage(msg, responseCallback);
+    } else {
+      chrome.runtime.sendMessage(msg);
+    }
+  } catch (e) {
+    if (e.message && e.message.includes('Extension context invalidated')) {
+      console.warn('[tab-alerter/isolated] Extension context invalidated — content script is orphaned');
+    } else {
+      console.warn('[tab-alerter/isolated] sendMessage error:', e.message);
+    }
+  }
+}
+
 window.addEventListener('message', (event) => {
-  // Log EVERY message before any guard.
+  // Bail out early for any frame where chrome.runtime is not available
+  // (cross-origin iframes, sandboxed frames). content-main.js only runs in
+  // the MAIN world of the top frame, but content-isolated.js is injected
+  // into every frame. Without this guard, subframe instances attempt to
+  // relay messages and spam warnings without ever succeeding.
+  if (!runtimeAvailable()) return;
+
   if (event.data && event.data.type) {
     console.log(
       '[tab-alerter/isolated] message received:',
@@ -18,10 +51,6 @@ window.addEventListener('message', (event) => {
 
   if (event.source !== window) return;
 
-  // On file:// pages the browser sets event.origin to the string "null"
-  // (opaque origin per spec) while window.location.origin is "file://".
-  // Allow either: same origin as the page, or the opaque-origin sentinel.
-  // The event.source === window guard above is the real same-page proof.
   const originOk =
     event.origin === window.location.origin ||
     event.origin === 'null';
@@ -36,12 +65,15 @@ window.addEventListener('message', (event) => {
 
   if (event.data && event.data.type === 'TAB_ALERTER_NOTIFICATION') {
     console.log('[tab-alerter/isolated] relaying TRIGGER_ALERT to background');
-    chrome.runtime.sendMessage({ type: 'TRIGGER_ALERT' });
+    relaySendMessage({ type: 'TRIGGER_ALERT' });
 
   } else if (event.data && event.data.type === 'DOM_OBSERVER_READY') {
     console.log('[tab-alerter/isolated] received DOM_OBSERVER_READY, sending GET_DOM_TRIGGERS to background');
-    chrome.runtime.sendMessage({ type: 'GET_DOM_TRIGGERS' }, (selectors) => {
-      if (chrome.runtime.lastError) {
+    relaySendMessage({ type: 'GET_DOM_TRIGGERS' }, (selectors) => {
+      // Use optional chaining: chrome.runtime may become undefined between
+      // the sendMessage call and this async callback firing (context
+      // invalidated mid-flight). Bare access would throw a TypeError.
+      if (chrome.runtime?.lastError) {
         console.warn('[tab-alerter/isolated] GET_DOM_TRIGGERS error:', chrome.runtime.lastError.message);
         return;
       }

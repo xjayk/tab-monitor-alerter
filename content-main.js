@@ -44,6 +44,34 @@
     }
   }
 
+  // Derive the list of attribute names referenced by the active selectors so
+  // we can pass a tight attributeFilter and avoid observing every attribute on
+  // every element in the subtree.
+  //
+  // Handles three notations:
+  //   [attr=...] / [attr]  → extracts the attribute name directly
+  //   .className           → adds 'class' (dynamic class sets are attribute mutations)
+  //   #someId              → adds 'id' (dynamic id sets are attribute mutations)
+  function attributeFilterFromSelectors(selectors) {
+    const attrs = new Set();
+    for (const selector of selectors) {
+      // Bracket notation: [aria-label], [data-foo], etc.
+      const matches = selector.matchAll(/\[([\w-]+)/g);
+      for (const m of matches) {
+        attrs.add(m[1]);
+      }
+      // Class notation: .approve, .some-class
+      if (selector.includes('.')) {
+        attrs.add('class');
+      }
+      // ID notation: #approve, #some-id
+      if (selector.includes('#')) {
+        attrs.add('id');
+      }
+    }
+    return [...attrs];
+  }
+
   function startObserver(selectors) {
     if (!selectors || selectors.length === 0) return;
     if (!document.body) return;
@@ -51,23 +79,33 @@
       observer.disconnect();
     }
 
+    const attrFilter = attributeFilterFromSelectors(selectors);
+    const observerConfig = {
+      childList: true,
+      subtree: true,
+      attributes: attrFilter.length > 0,
+    };
+    if (attrFilter.length > 0) {
+      observerConfig.attributeFilter = attrFilter;
+    }
+
     observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-          checkNode(node, selectors);
+        if (mutation.type === 'childList') {
+          for (const node of mutation.addedNodes) {
+            checkNode(node, selectors);
+          }
+        } else if (mutation.type === 'attributes') {
+          checkNode(mutation.target, selectors);
         }
       }
     });
 
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
-    console.log('[tab-alerter/main] DOM observer started with selectors:', selectors);
+    observer.observe(document.body, observerConfig);
+    console.log('[tab-alerter/main] DOM observer started with selectors:', selectors,
+      '| attributeFilter:', attrFilter);
 
-    // Scan existing DOM for elements that already match — the observer only
-    // fires for future mutations, so elements present at injection time would
-    // otherwise be missed (elements loaded as part of the static page).
+    // Scan existing DOM so elements already present at injection time are caught.
     for (const selector of selectors) {
       document.querySelectorAll(selector).forEach((node) => checkNode(node, selectors));
     }
