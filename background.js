@@ -217,13 +217,18 @@ chrome.storage.onChanged.addListener((changes) => {
     console.log('[tab-alerter/bg] monitorAllTabs changed:', monitorAllTabs);
     // When enabling, inject into all current complete tabs immediately.
     if (monitorAllTabs) {
-      chrome.tabs.query({ status: 'complete' }, (tabs) => {
-        for (const tab of tabs) {
-          if (tab.id && !isNonInjectableUrl(tab.url)) {
-            injectMonitor(tab.id).catch(console.error);
+      (async () => {
+        try {
+          const tabs = await chrome.tabs.query({ status: 'complete' });
+          for (const tab of tabs) {
+            if (tab.id && !isNonInjectableUrl(tab?.url)) {
+              await injectMonitor(tab.id).catch(console.error);
+            }
           }
+        } catch (err) {
+          console.error('[tab-alerter/bg] Failed to query tabs:', err);
         }
-      });
+      })();
     }
   }
 });
