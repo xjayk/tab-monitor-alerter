@@ -267,4 +267,15 @@ describe('normalizeMonitorTypes', () => {
     expect(result[MONITOR_TYPE_KEYS.DOM_TRIGGER]).toBe(true);
     expect(Object.keys(result)).toEqual(Object.keys(MONITOR_TYPE_KEYS).map(k => MONITOR_TYPE_KEYS[k]));
   });
+
+  it('falls back to default when key has explicit undefined value', () => {
+    const result = normalizeMonitorTypes({
+      [MONITOR_TYPE_KEYS.TITLE]: undefined,
+      [MONITOR_TYPE_KEYS.NOTIFICATION]: true,
+      [MONITOR_TYPE_KEYS.DOM_TRIGGER]: undefined,
+    });
+    expect(result[MONITOR_TYPE_KEYS.TITLE]).toBe(true);
+    expect(result[MONITOR_TYPE_KEYS.NOTIFICATION]).toBe(true);
+    expect(result[MONITOR_TYPE_KEYS.DOM_TRIGGER]).toBe(true);
+  });
 });

@@ -315,13 +315,16 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
       console.log('[tab-alerter/bg] onActivated no title change | tabId:', tabId, '| title:', current);
       return;
     }
-    if (!monitorTypes[MONITOR_TYPE_KEYS.TITLE]) {
-      console.log('[tab-alerter/bg] onActivated skipped (monitorTitleUpdates=false) | tabId:', tabId);
-      return;
-    }
-    console.log('[tab-alerter/bg] onActivated title changed! | tabId:', tabId, '| prev:', prev, '| current:', current);
-    if (config && !titleMatchesPattern(current, config.pattern)) return;
-    triggerAlert(tabId);
+    // Re-read from storage to avoid stale cached value on SW cold-start.
+    getSettings().then(({ monitorTypes: mt }) => {
+      if (!mt[MONITOR_TYPE_KEYS.TITLE]) {
+        console.log('[tab-alerter/bg] onActivated skipped (monitorTitleUpdates=false) | tabId:', tabId);
+        return;
+      }
+      console.log('[tab-alerter/bg] onActivated title changed! | tabId:', tabId, '| prev:', prev, '| current:', current);
+      if (config && !titleMatchesPattern(current, config.pattern)) return;
+      triggerAlert(tabId);
+    });
   });
 });
 

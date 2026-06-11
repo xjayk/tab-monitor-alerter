@@ -36,7 +36,7 @@ export function normalizeMonitorTypes(raw) {
   if (!raw || typeof raw !== 'object') return { ...defaults };
   const result = {};
   for (const key of Object.keys(defaults)) {
-    result[key] = key in raw ? raw[key] === true : defaults[key];
+    result[key] = (key in raw && raw[key] !== undefined) ? raw[key] === true : defaults[key];
   }
   return result;
 }
