@@ -1,6 +1,7 @@
 import { shouldDebounce, titleMatchesPattern, migrateMonitoredTabs } from './src/utils.js';
 
 const DEBOUNCE_MS = 1000;
+const CLEANUP_DELAY_MS = 5000;
 const lastAlertTime = {};
 
 // Tracks the last title we saw per tab so onActivated can detect
@@ -73,8 +74,6 @@ async function init() {
   monitorAllTabs = res.monitorAllTabs === true;
   console.log('[tab-alerter/bg] alertOnActive:', alertOnActive, '| monitorAllTabs:', monitorAllTabs);
 
-  await cleanupStaleMonitoredTabs();
-
   console.log('[tab-alerter/bg] init complete, monitoredTabs:', JSON.stringify(monitoredTabs));
 
   // Re-inject content-main.js into each surviving monitored tab on SW restart.
@@ -96,7 +95,6 @@ async function init() {
 void init();
 
 async function cleanupStaleMonitoredTabs() {
-  const keys = Object.keys(monitoredTabs);
   const allTabs = await chrome.tabs.query({});
   const liveIds = new Set();
 
@@ -108,19 +106,31 @@ async function cleanupStaleMonitoredTabs() {
     }
   }
 
+  // Read the freshest data from storage to avoid racing with concurrent
+  // updates that may have occurred during the init delay.
+  let res;
+  try {
+    res = await chrome.storage.local.get('monitoredTabs');
+  } catch (err) {
+    console.error('[tab-alerter/bg] Failed to read storage for cleanup:', err);
+    return;
+  }
+  const currentMonitored = migrateMonitoredTabs(res.monitoredTabs);
+  const keys = Object.keys(currentMonitored);
   if (keys.length === 0) return;
 
   let changed = false;
+  const updatedMonitored = { ...currentMonitored };
   for (const key of keys) {
     if (!liveIds.has(Number(key))) {
-      delete monitoredTabs[key];
+      delete updatedMonitored[key];
       changed = true;
     }
   }
 
   if (changed) {
-    await chrome.storage.local.set({ monitoredTabs });
-    console.log('[tab-alerter/bg] cleaned up stale monitoredTabs, remaining:', JSON.stringify(monitoredTabs));
+    await chrome.storage.local.set({ monitoredTabs: updatedMonitored });
+    console.log('[tab-alerter/bg] cleaned up stale monitoredTabs, remaining:', JSON.stringify(updatedMonitored));
   }
 }
 
@@ -178,6 +188,20 @@ function getSelectorsForUrl(url) {
     return [];
   }
 }
+
+// Schedule stale-tab cleanup on browser startup and extension install/update.
+// These are the only times stale IDs can appear; running on every SW wake-up
+// would be redundant.
+chrome.runtime.onStartup.addListener(() => {
+  setTimeout(() => {
+    cleanupStaleMonitoredTabs().catch(console.error);
+  }, CLEANUP_DELAY_MS);
+});
+chrome.runtime.onInstalled.addListener(() => {
+  setTimeout(() => {
+    cleanupStaleMonitoredTabs().catch(console.error);
+  }, CLEANUP_DELAY_MS);
+});
 
 // ---------------------------------------------------------------------------
 // Event listeners
