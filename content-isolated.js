@@ -13,7 +13,7 @@ try {
 const targetOrigin = (window.location.origin === 'null' || window.location.protocol === 'file:') ? '*' : window.location.origin;
 try {
   window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, targetOrigin);
-} catch (e) {
+} catch {
   // Silently ignore — page may have been destroyed.
 }
 
@@ -43,9 +43,8 @@ function relaySendMessage(msg, responseCallback) {
     }
   } catch (e) {
     if (e.message && e.message.includes('Extension context invalidated')) {
-      // Orphaned content script — expected after SW reload. Log once at debug
-      // level so it doesn't surface as a scary warning in the console.
-      console.debug('[tab-alerter/isolated] context invalidated (orphaned) — dropping:', msg.type);
+      // Orphaned content script — expected after SW reload.
+      console.warn('[tab-alerter/isolated] context invalidated (orphaned) — dropping:', msg.type);
     } else {
       console.warn('[tab-alerter/isolated] sendMessage error:', e.message);
     }
@@ -114,7 +113,7 @@ window.addEventListener('message', (event) => {
         }
       } catch (e) {
         if (e.message && e.message.includes('Extension context invalidated')) {
-          console.debug('[tab-alerter/isolated] context invalidated mid-flight in GET_DOM_TRIGGERS callback');
+          console.warn('[tab-alerter/isolated] context invalidated mid-flight in GET_DOM_TRIGGERS callback');
         } else {
           console.warn('[tab-alerter/isolated] GET_DOM_TRIGGERS callback error:', e.message);
         }
