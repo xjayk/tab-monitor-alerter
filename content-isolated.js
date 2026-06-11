@@ -1,18 +1,38 @@
-const { name, version, version_name } = chrome.runtime.getManifest();
-const _v = version_name ?? version;
-console.log(`[tab-alerter/isolated] \uD83D\uDD16 ${name} v${_v} loaded`);
+let _name, _v;
+try {
+  const { name, version, version_name } = chrome.runtime.getManifest();
+  _name = name;
+  _v = version_name ?? version;
+  console.log(`[tab-alerter/isolated] 🔖 ${_name} v${_v} loaded`);
+} catch (e) {
+  // Extension context already invalidated at injection time — bail out entirely.
+  // This can happen if the service worker reloads while the script is being eval'd.
+  console.warn('[tab-alerter/isolated] getManifest() failed at load — context already invalidated:', e.message);
+}
 
 const targetOrigin = (window.location.origin === 'null' || window.location.protocol === 'file:') ? '*' : window.location.origin;
-window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, targetOrigin);
+try {
+  window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, targetOrigin);
+} catch (e) {
+  // Silently ignore — page may have been destroyed.
+}
 
 // Guard: chrome.runtime may be undefined in subframes or sandboxed contexts.
 function runtimeAvailable() {
   return typeof chrome !== 'undefined' && !!chrome.runtime;
 }
 
+// Guard: chrome.runtime exists but the extension context may have been
+// invalidated (service worker reloaded). chrome.runtime.id becomes undefined
+// in that state — use it as a cheap liveness probe.
+function contextValid() {
+  return runtimeAvailable() && !!chrome.runtime.id;
+}
+
 function relaySendMessage(msg, responseCallback) {
-  if (!runtimeAvailable()) {
-    console.warn('[tab-alerter/isolated] chrome.runtime unavailable — cannot send:', msg.type);
+  if (!contextValid()) {
+    // Suppress noisy warnings for orphaned scripts — this is expected when
+    // the extension updates or the service worker restarts.
     return;
   }
   try {
@@ -23,7 +43,9 @@ function relaySendMessage(msg, responseCallback) {
     }
   } catch (e) {
     if (e.message && e.message.includes('Extension context invalidated')) {
-      console.warn('[tab-alerter/isolated] Extension context invalidated — content script is orphaned');
+      // Orphaned content script — expected after SW reload. Log once at debug
+      // level so it doesn't surface as a scary warning in the console.
+      console.debug('[tab-alerter/isolated] context invalidated (orphaned) — dropping:', msg.type);
     } else {
       console.warn('[tab-alerter/isolated] sendMessage error:', e.message);
     }
@@ -36,7 +58,7 @@ window.addEventListener('message', (event) => {
   // the MAIN world of the top frame, but content-isolated.js is injected
   // into every frame. Without this guard, subframe instances attempt to
   // relay messages and spam warnings without ever succeeding.
-  if (!runtimeAvailable()) return;
+  if (!contextValid()) return;
 
   if (event.data && event.data.type) {
     console.log(
@@ -78,16 +100,24 @@ window.addEventListener('message', (event) => {
   } else if (event.data && event.data.type === 'DOM_OBSERVER_READY') {
     console.log('[tab-alerter/isolated] received DOM_OBSERVER_READY, sending GET_DOM_TRIGGERS to background');
     relaySendMessage({ type: 'GET_DOM_TRIGGERS' }, (selectors) => {
-      // Use optional chaining: chrome.runtime may become undefined between
-      // the sendMessage call and this async callback firing (context
-      // invalidated mid-flight). Bare access would throw a TypeError.
-      if (chrome.runtime?.lastError) {
-        console.warn('[tab-alerter/isolated] GET_DOM_TRIGGERS error:', chrome.runtime.lastError.message);
-        return;
-      }
-      console.log('[tab-alerter/isolated] GET_DOM_TRIGGERS response:', selectors);
-      if (Array.isArray(selectors) && selectors.length > 0) {
-        window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors }, targetOrigin);
+      // The context may have been invalidated between sendMessage and this
+      // async callback firing. Wrap entirely to prevent any access on a dead
+      // chrome.runtime from throwing a TypeError.
+      try {
+        if (chrome.runtime?.lastError) {
+          console.warn('[tab-alerter/isolated] GET_DOM_TRIGGERS error:', chrome.runtime.lastError.message);
+          return;
+        }
+        console.log('[tab-alerter/isolated] GET_DOM_TRIGGERS response:', selectors);
+        if (Array.isArray(selectors) && selectors.length > 0) {
+          window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors }, targetOrigin);
+        }
+      } catch (e) {
+        if (e.message && e.message.includes('Extension context invalidated')) {
+          console.debug('[tab-alerter/isolated] context invalidated mid-flight in GET_DOM_TRIGGERS callback');
+        } else {
+          console.warn('[tab-alerter/isolated] GET_DOM_TRIGGERS callback error:', e.message);
+        }
       }
     });
   }
