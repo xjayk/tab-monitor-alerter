@@ -13,8 +13,12 @@ try {
 const targetOrigin = (window.location.origin === 'null' || window.location.protocol === 'file:') ? '*' : window.location.origin;
 try {
   window.postMessage({ type: 'CONTENT_SCRIPT_READY' }, targetOrigin);
-} catch {
-  // Silently ignore — page may have been destroyed.
+} catch (e) {
+  if (e.message && e.message.includes('Extension context invalidated')) {
+    // Orphaned script — expected when the SW reloads before this runs.
+  } else {
+    console.warn('[tab-alerter/isolated] postMessage failed at load:', e.message);
+  }
 }
 
 // Guard: chrome.runtime may be undefined in subframes or sandboxed contexts.
