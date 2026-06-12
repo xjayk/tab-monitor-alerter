@@ -261,6 +261,10 @@ chrome.storage.onChanged.addListener((changes) => {
     }
   }
 
+  if (changes.alertingTabId && changes.alertingTabId.newValue === undefined) {
+    resetAlertState({ clearStorage: false });
+  }
+
   // Monitor per-type toggles — any of the three keys changed.
   const typeKeys = Object.values(MONITOR_TYPE_KEYS);
   const anyTypeChanged = typeKeys.some(k => changes[k]);
@@ -460,14 +464,27 @@ function triggerAlert(tabId) {
   }
 }
 
-function clearAlert() {
+function resetAlertState({ clearStorage = true } = {}) {
+  const activeTabId = alertingTabId;
   alertingTabId = null;
-  chrome.storage.local.remove(['alertingTabId']);
+
+  if (activeTabId !== null) {
+    delete lastAlertTime[activeTabId];
+  }
+
+  if (clearStorage) {
+    chrome.storage.local.remove(['alertingTabId']);
+  }
+
   if (badgeInterval) {
     clearInterval(badgeInterval);
     badgeInterval = null;
   }
   chrome.action.setBadgeText({ text: '' });
+}
+
+function clearAlert() {
+  resetAlertState();
 }
 
 async function playSound() {

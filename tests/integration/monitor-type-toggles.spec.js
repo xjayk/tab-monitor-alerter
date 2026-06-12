@@ -103,6 +103,18 @@ async function fireDomTriggerAttr(page) {
   }, nodeId);
 }
 
+
+/**
+ * Clear the current alert between sub-checks. The service worker mirrors this
+ * storage removal into its in-memory alert/debounce state via storage.onChanged.
+ */
+async function clearActiveAlert(serviceWorker) {
+  await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+  // Give chrome.storage.onChanged in the service worker a turn to synchronize
+  // its in-memory alertingTabId/lastAlertTime with the persisted removal.
+  await serviceWorker.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+}
+
 /**
  * Arm the observer once then fire both DOM mutation paths sequentially.
  * Calls assertFn with the mutation type string after each fire, then
@@ -119,12 +131,12 @@ async function fireBothDomPaths(page, assertFn, getStorage, serviceWorker) {
   // Path 2 — childList
   await fireDomTriggerChildList(page);
   await assertFn('childList');
-  await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+  await clearActiveAlert(serviceWorker);
 
   // Path 3 — attribute (unique node ID guaranteed by attrTargetSeq)
   await fireDomTriggerAttr(page);
   await assertFn('attr');
-  await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+  await clearActiveAlert(serviceWorker);
 }
 
 /**
@@ -276,7 +288,7 @@ test.describe.serial('TC-INT-26–28: Toggle isolation', () => {
     await fireTitleChange(page);
     await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
       { timeout: 5000 }).toBe(tabId);
-    await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+    await clearActiveAlert(serviceWorker);
   });
 
   test('TC-INT-27: monitorDomTriggers=false still allows notification and title alerts', async ({
@@ -303,13 +315,13 @@ test.describe.serial('TC-INT-26–28: Toggle isolation', () => {
     await fireNotification(page);
     await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
       { timeout: 4000 }).toBe(tabId);
-    await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+    await clearActiveAlert(serviceWorker);
 
     // Title change must still fire.
     await fireTitleChange(page);
     await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
       { timeout: 5000 }).toBe(tabId);
-    await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+    await clearActiveAlert(serviceWorker);
   });
 
   test('TC-INT-28: monitorTitleUpdates=false still allows notification and both DOM paths', async ({
@@ -331,7 +343,7 @@ test.describe.serial('TC-INT-26–28: Toggle isolation', () => {
     await fireNotification(page);
     await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
       { timeout: 4000 }).toBe(tabId);
-    await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+    await clearActiveAlert(serviceWorker);
 
     // Both DOM paths must still fire.
     await fireBothDomPaths(
@@ -398,7 +410,7 @@ test.describe.serial('TC-INT-29–30: alertOnActive toggle', () => {
     await fireNotification(page);
     await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
       { timeout: 4000 }).toBe(tabId);
-    await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+    await clearActiveAlert(serviceWorker);
 
     // Both DOM paths.
     await fireBothDomPaths(
