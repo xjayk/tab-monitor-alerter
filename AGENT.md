@@ -26,3 +26,14 @@ This file provides context for any AI assistant (Cursor, GitHub Copilot, etc.) w
 ## Extension Action Behavior
 - Standard click opens `popup.html`.
 - However, if `alertingTabId` is present, `popup.js` will immediately navigate to the alerting tab and execute `window.close()` without rendering the UI. Maintain this architectural pattern if modifying the popup logic.
+
+## Testing
+
+### Commands
+- **Unit tests**: `npm test`
+- **Integration tests**: `xvfb-run -a -s "-screen 0 1280x720x24" npm run test:integration`
+
+### Rules
+- This project uses **Vitest**, not Jest. Never use Jest flags (e.g. `--runInBand`, `--testPathPattern`).
+- Integration tests require a real Chromium instance with a virtual display — always use the `xvfb-run` prefix above. Do not invoke `npx playwright test` directly.
+- Never add `--headless` to Playwright/Chromium args — MV3 extensions do not load in headless mode.
