@@ -49,15 +49,22 @@ async function fireNotification(page) {
 }
 
 /**
- * Arm the DOM observer with a selector then inject a matching node.
+ * Arm the DOM observer then trigger Path 2: childList mutation (new node).
+ * Must call armDomObserver() before this if not already armed.
  */
-async function fireDomTrigger(page) {
-  // Arm the observer first.
+async function armDomObserver(page) {
   await page.evaluate(() =>
     window.postMessage({ type: 'SET_DOM_TRIGGERS', selectors: ['button[aria-label="Approve"]'] }, '*'),
   );
-  // Small settle time so content-main.js can attach the MutationObserver.
+  // Allow content-main.js to attach the MutationObserver.
   await page.waitForTimeout(200);
+}
+
+/**
+ * Path 2 — childList mutation: append a new matching node.
+ * Assumes the observer has already been armed via armDomObserver().
+ */
+async function fireDomTriggerChildList(page) {
   await page.evaluate(() => {
     const btn = document.createElement('button');
     btn.setAttribute('aria-label', 'Approve');
@@ -66,24 +73,51 @@ async function fireDomTrigger(page) {
 }
 
 /**
+ * Path 3 — attribute mutation: set aria-label on a pre-existing node.
+ * Assumes the observer has already been armed via armDomObserver().
+ * Creates a base node without the attribute, then sets it.
+ */
+async function fireDomTriggerAttr(page) {
+  // Create node without the triggering attribute (so it won't fire childList).
+  await page.evaluate(() => {
+    const btn = document.createElement('button');
+    btn.id = 'attr-mutation-target';
+    document.body.appendChild(btn);
+  });
+  // Set the triggering attribute as a separate operation.
+  await page.evaluate(() => {
+    document.getElementById('attr-mutation-target').setAttribute('aria-label', 'Approve');
+  });
+}
+
+/**
+ * Arm the observer once then fire both DOM mutation paths sequentially.
+ * After each fire, assert via `assertFn` and reset `alertingTabId` between.
+ *
+ * @param {object}   page
+ * @param {Function} assertFn  Called after each mutation with the storage snapshot.
+ * @param {Function} getStorage
+ * @param {object}   serviceWorker  Used to reset alertingTabId between sub-checks.
+ */
+async function fireBothDomPaths(page, assertFn, getStorage, serviceWorker) {
+  await armDomObserver(page);
+
+  // Path 2 — childList
+  await fireDomTriggerChildList(page);
+  await assertFn('childList');
+  await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+
+  // Path 3 — attribute
+  await fireDomTriggerAttr(page);
+  await assertFn('attr');
+  await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+}
+
+/**
  * Change document.title on the page (Path 4 — onUpdated in background SW).
  */
 async function fireTitleChange(page) {
   await page.evaluate(() => { document.title = '(test) title updated'; });
-}
-
-/**
- * Poll storage for alertingTabId up to `timeout` ms.
- * Returns the value (or undefined if not set within the window).
- */
-async function pollAlertingTabId(getStorage, timeout = 4000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const s = await getStorage(['alertingTabId']);
-    if (s.alertingTabId !== undefined) return s.alertingTabId;
-    await new Promise(r => setTimeout(r, 100));
-  }
-  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +153,7 @@ test.describe.serial('TC-INT-20–25: Single-toggle suppression', () => {
       { timeout: 4000 }).toBe(tabId);
   });
 
-  test('TC-INT-22: monitorDomTriggers=false suppresses DOM trigger alert', async ({
+  test('TC-INT-22: monitorDomTriggers=false suppresses both DOM mutation paths', async ({
     context, serviceWorker, getStorage, clearStorage,
   }) => {
     await clearStorage();
@@ -127,13 +161,20 @@ test.describe.serial('TC-INT-20–25: Single-toggle suppression', () => {
       monitorDomTriggers: false,
     });
 
-    await fireDomTrigger(page);
-    await page.waitForTimeout(800);
+    await armDomObserver(page);
 
+    // Path 2 — childList
+    await fireDomTriggerChildList(page);
+    await page.waitForTimeout(600);
+    expect((await getStorage(['alertingTabId'])).alertingTabId).toBeUndefined();
+
+    // Path 3 — attribute
+    await fireDomTriggerAttr(page);
+    await page.waitForTimeout(600);
     expect((await getStorage(['alertingTabId'])).alertingTabId).toBeUndefined();
   });
 
-  test('TC-INT-23: monitorDomTriggers=true fires DOM trigger alert', async ({
+  test('TC-INT-23: monitorDomTriggers=true fires both DOM mutation paths', async ({
     context, serviceWorker, getStorage, clearStorage,
   }) => {
     await clearStorage();
@@ -141,10 +182,17 @@ test.describe.serial('TC-INT-20–25: Single-toggle suppression', () => {
       monitorDomTriggers: true,
     });
 
-    await fireDomTrigger(page);
-
-    await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
-      { timeout: 5000 }).toBe(tabId);
+    await fireBothDomPaths(
+      page,
+      async (mutationType) => {
+        await expect.poll(
+          () => getStorage(['alertingTabId']).then(s => s.alertingTabId),
+          { timeout: 5000, message: `DOM ${mutationType} mutation should fire alert` },
+        ).toBe(tabId);
+      },
+      getStorage,
+      serviceWorker,
+    );
   });
 
   test('TC-INT-24: monitorTitleUpdates=false suppresses title-change alert', async ({
@@ -182,11 +230,10 @@ test.describe.serial('TC-INT-20–25: Single-toggle suppression', () => {
 // ---------------------------------------------------------------------------
 test.describe.serial('TC-INT-26–28: Toggle isolation', () => {
 
-  test('TC-INT-26: monitorWebNotifications=false still allows DOM trigger and title alerts', async ({
+  test('TC-INT-26: monitorWebNotifications=false still allows both DOM paths and title alert', async ({
     context, serviceWorker, getStorage, clearStorage,
   }) => {
     await clearStorage();
-    // Disable notifications only.
     const { page, tabId } = await setupMonitoredTab(context, serviceWorker, {
       monitorWebNotifications: false,
       monitorDomTriggers: true,
@@ -198,18 +245,24 @@ test.describe.serial('TC-INT-26–28: Toggle isolation', () => {
     await page.waitForTimeout(600);
     expect((await getStorage(['alertingTabId'])).alertingTabId).toBeUndefined();
 
-    // DOM trigger must still fire.
-    await fireDomTrigger(page);
-    await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
-      { timeout: 5000 }).toBe(tabId);
-
-    // Reset for next sub-check.
-    await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+    // Both DOM paths must still fire.
+    await fireBothDomPaths(
+      page,
+      async (mutationType) => {
+        await expect.poll(
+          () => getStorage(['alertingTabId']).then(s => s.alertingTabId),
+          { timeout: 5000, message: `DOM ${mutationType} should fire when only notifications disabled` },
+        ).toBe(tabId);
+      },
+      getStorage,
+      serviceWorker,
+    );
 
     // Title change must still fire.
     await fireTitleChange(page);
     await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
       { timeout: 5000 }).toBe(tabId);
+    await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
   });
 
   test('TC-INT-27: monitorDomTriggers=false still allows notification and title alerts', async ({
@@ -222,8 +275,13 @@ test.describe.serial('TC-INT-26–28: Toggle isolation', () => {
       monitorTitleUpdates: true,
     });
 
-    // DOM trigger must be suppressed.
-    await fireDomTrigger(page);
+    // Both DOM paths must be suppressed.
+    await armDomObserver(page);
+    await fireDomTriggerChildList(page);
+    await page.waitForTimeout(600);
+    expect((await getStorage(['alertingTabId'])).alertingTabId).toBeUndefined();
+
+    await fireDomTriggerAttr(page);
     await page.waitForTimeout(600);
     expect((await getStorage(['alertingTabId'])).alertingTabId).toBeUndefined();
 
@@ -231,16 +289,16 @@ test.describe.serial('TC-INT-26–28: Toggle isolation', () => {
     await fireNotification(page);
     await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
       { timeout: 4000 }).toBe(tabId);
-
     await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
 
     // Title change must still fire.
     await fireTitleChange(page);
     await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
       { timeout: 5000 }).toBe(tabId);
+    await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
   });
 
-  test('TC-INT-28: monitorTitleUpdates=false still allows notification and DOM trigger alerts', async ({
+  test('TC-INT-28: monitorTitleUpdates=false still allows notification and both DOM paths', async ({
     context, serviceWorker, getStorage, clearStorage,
   }) => {
     await clearStorage();
@@ -259,28 +317,26 @@ test.describe.serial('TC-INT-26–28: Toggle isolation', () => {
     await fireNotification(page);
     await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
       { timeout: 4000 }).toBe(tabId);
-
     await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
 
-    // DOM trigger must still fire.
-    await fireDomTrigger(page);
-    await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
-      { timeout: 5000 }).toBe(tabId);
+    // Both DOM paths must still fire.
+    await fireBothDomPaths(
+      page,
+      async (mutationType) => {
+        await expect.poll(
+          () => getStorage(['alertingTabId']).then(s => s.alertingTabId),
+          { timeout: 5000, message: `DOM ${mutationType} should fire when only title updates disabled` },
+        ).toBe(tabId);
+      },
+      getStorage,
+      serviceWorker,
+    );
   });
 
 });
 
 // ---------------------------------------------------------------------------
 // TC-INT-29–30: alertOnActive toggle
-//
-// alertOnActive controls whether alerts fire when the triggering tab is the
-// currently active (foreground) tab. We keep the tab active (keepActive=true)
-// for both tests so the suppression condition is in play.
-//
-// Note: title-change via onUpdated can only be reliably tested for
-// alertOnActive because changing document.title always fires onUpdated;
-// notification and DOM paths both go through TRIGGER_ALERT which also
-// checks the same aoa gate.
 // ---------------------------------------------------------------------------
 test.describe.serial('TC-INT-29–30: alertOnActive toggle', () => {
 
@@ -288,19 +344,23 @@ test.describe.serial('TC-INT-29–30: alertOnActive toggle', () => {
     context, serviceWorker, getStorage, clearStorage,
   }) => {
     await clearStorage();
-    // keepActive=true: do NOT open a second tab, so monitored tab stays active.
     const { page } = await setupMonitoredTab(context, serviceWorker, {
       alertOnActive: false,
       monitorWebNotifications: true,
       monitorDomTriggers: true,
       monitorTitleUpdates: true,
-    }, true);
+    }, true); // keepActive=true
 
     await fireNotification(page);
     await page.waitForTimeout(600);
     expect((await getStorage(['alertingTabId'])).alertingTabId).toBeUndefined();
 
-    await fireDomTrigger(page);
+    await armDomObserver(page);
+    await fireDomTriggerChildList(page);
+    await page.waitForTimeout(600);
+    expect((await getStorage(['alertingTabId'])).alertingTabId).toBeUndefined();
+
+    await fireDomTriggerAttr(page);
     await page.waitForTimeout(600);
     expect((await getStorage(['alertingTabId'])).alertingTabId).toBeUndefined();
 
@@ -320,19 +380,26 @@ test.describe.serial('TC-INT-29–30: alertOnActive toggle', () => {
       monitorTitleUpdates: true,
     }, true); // keepActive=true
 
-    // Notification path.
+    // Notification.
     await fireNotification(page);
     await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
       { timeout: 4000 }).toBe(tabId);
     await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
 
-    // DOM trigger path.
-    await fireDomTrigger(page);
-    await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
-      { timeout: 5000 }).toBe(tabId);
-    await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
+    // Both DOM paths.
+    await fireBothDomPaths(
+      page,
+      async (mutationType) => {
+        await expect.poll(
+          () => getStorage(['alertingTabId']).then(s => s.alertingTabId),
+          { timeout: 5000, message: `DOM ${mutationType} should fire with alertOnActive=true` },
+        ).toBe(tabId);
+      },
+      getStorage,
+      serviceWorker,
+    );
 
-    // Title change path.
+    // Title change.
     await fireTitleChange(page);
     await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
       { timeout: 5000 }).toBe(tabId);
@@ -342,18 +409,9 @@ test.describe.serial('TC-INT-29–30: alertOnActive toggle', () => {
 
 // ---------------------------------------------------------------------------
 // TC-INT-31–35: monitorAllTabs toggle
-//
-// When monitorAllTabs=true the background treats every tab as monitored,
-// regardless of the monitoredTabs storage entry. We intentionally do NOT add
-// the tab to monitoredTabs to confirm auto-monitoring is driving the alert.
 // ---------------------------------------------------------------------------
 test.describe.serial('TC-INT-31–35: monitorAllTabs toggle', () => {
 
-  /**
-   * Open a tab at example.com that is deliberately NOT in monitoredTabs.
-   * Sets monitorAllTabs + any extra storage keys.
-   * Pushes a second tab to background unless keepActive=true.
-   */
   async function setupUnmonitoredTab(context, serviceWorker, extraStorage = {}, keepActive = false) {
     const page = await context.newPage();
     await page.goto('https://example.com');
@@ -363,7 +421,6 @@ test.describe.serial('TC-INT-31–35: monitorAllTabs toggle', () => {
       return tabs[0]?.id;
     });
 
-    // Write settings but NO monitoredTabs entry for this tab.
     await serviceWorker.evaluate(
       ([extra]) => chrome.storage.local.set({ monitoredTabs: {}, ...extra }),
       [extraStorage],
@@ -389,7 +446,7 @@ test.describe.serial('TC-INT-31–35: monitorAllTabs toggle', () => {
       { timeout: 4000 }).toBe(tabId);
   });
 
-  test('TC-INT-32: monitorAllTabs=true fires DOM trigger alert on unmonitored tab', async ({
+  test('TC-INT-32: monitorAllTabs=true fires both DOM mutation paths on unmonitored tab', async ({
     context, serviceWorker, getStorage, clearStorage,
   }) => {
     await clearStorage();
@@ -398,10 +455,17 @@ test.describe.serial('TC-INT-31–35: monitorAllTabs toggle', () => {
       monitorDomTriggers: true,
     });
 
-    await fireDomTrigger(page);
-
-    await expect.poll(() => getStorage(['alertingTabId']).then(s => s.alertingTabId),
-      { timeout: 5000 }).toBe(tabId);
+    await fireBothDomPaths(
+      page,
+      async (mutationType) => {
+        await expect.poll(
+          () => getStorage(['alertingTabId']).then(s => s.alertingTabId),
+          { timeout: 5000, message: `DOM ${mutationType} should fire under monitorAllTabs` },
+        ).toBe(tabId);
+      },
+      getStorage,
+      serviceWorker,
+    );
   });
 
   test('TC-INT-33: monitorAllTabs=true fires title alert on unmonitored tab', async ({
@@ -427,9 +491,10 @@ test.describe.serial('TC-INT-31–35: monitorAllTabs toggle', () => {
       monitorAllTabs: false,
     });
 
-    // Fire all three paths — none should produce an alert.
     await fireNotification(page);
-    await fireDomTrigger(page);
+    await armDomObserver(page);
+    await fireDomTriggerChildList(page);
+    await fireDomTriggerAttr(page);
     await fireTitleChange(page);
     await page.waitForTimeout(1500);
 
@@ -440,7 +505,6 @@ test.describe.serial('TC-INT-31–35: monitorAllTabs toggle', () => {
     context, serviceWorker, getStorage, clearStorage,
   }) => {
     await clearStorage();
-    // All type toggles off — even with monitorAllTabs=true nothing should fire.
     const { page } = await setupUnmonitoredTab(context, serviceWorker, {
       monitorAllTabs: true,
       monitorWebNotifications: false,
@@ -449,7 +513,9 @@ test.describe.serial('TC-INT-31–35: monitorAllTabs toggle', () => {
     });
 
     await fireNotification(page);
-    await fireDomTrigger(page);
+    await armDomObserver(page);
+    await fireDomTriggerChildList(page);
+    await fireDomTriggerAttr(page);
     await fireTitleChange(page);
     await page.waitForTimeout(1500);
 
