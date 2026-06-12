@@ -79,6 +79,48 @@
     </label>
   </div>
 
+  <div class="setting" style="margin-top: 0.75rem;">
+    <div class="setting-text">
+      <div class="setting-label">Monitor title updates</div>
+      <div class="setting-desc">
+        Trigger alerts when a monitored tab's title changes (e.g. new message
+        count appears in the tab title).
+      </div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="monitor-title-updates" />
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="setting">
+    <div class="setting-text">
+      <div class="setting-label">Monitor web notifications</div>
+      <div class="setting-desc">
+        Trigger alerts when a page creates a browser notification via the
+        Notification API.
+      </div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="monitor-web-notifications" />
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="setting">
+    <div class="setting-text">
+      <div class="setting-label">Monitor DOM triggers</div>
+      <div class="setting-desc">
+        Trigger alerts when a page renders a matching UI element (e.g. an
+        Approve button on Perplexity).
+      </div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="monitor-dom-triggers" />
+      <span class="slider"></span>
+    </label>
+  </div>
+
   <div id="save-status"></div>
 
   <script src="options.js"></script>
