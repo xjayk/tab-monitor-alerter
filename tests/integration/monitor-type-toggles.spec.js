@@ -49,8 +49,8 @@ async function fireNotification(page) {
 }
 
 /**
- * Arm the DOM observer then trigger Path 2: childList mutation (new node).
- * Must call armDomObserver() before this if not already armed.
+ * Arm the MutationObserver in content-main.js with the test selector.
+ * Must be called before any fireDomTrigger* call on a given page.
  */
 async function armDomObserver(page) {
   await page.evaluate(() =>
@@ -61,7 +61,7 @@ async function armDomObserver(page) {
 }
 
 /**
- * Path 2 — childList mutation: append a new matching node.
+ * Path 2 — childList mutation: append a new fully-attributed node.
  * Assumes the observer has already been armed via armDomObserver().
  */
 async function fireDomTriggerChildList(page) {
@@ -73,31 +73,45 @@ async function fireDomTriggerChildList(page) {
 }
 
 /**
- * Path 3 — attribute mutation: set aria-label on a pre-existing node.
+ * Monotonically increasing counter so every fireDomTriggerAttr() call
+ * injects a node with a unique ID — even when called multiple times
+ * within the same page/test. Re-using a hardcoded ID would make the
+ * second setAttribute call a no-op (aria-label already set) and the
+ * MutationObserver would never fire.
+ */
+let attrTargetSeq = 0;
+
+/**
+ * Path 3 — attribute mutation: create a plain node then set aria-label.
+ * A unique ID is generated per call so repeated invocations on the same
+ * page each target a fresh, unattributed node.
  * Assumes the observer has already been armed via armDomObserver().
- * Creates a base node without the attribute, then sets it.
  */
 async function fireDomTriggerAttr(page) {
-  // Create node without the triggering attribute (so it won't fire childList).
-  await page.evaluate(() => {
+  const nodeId = `attr-mutation-target-${++attrTargetSeq}`;
+  // Step 1: append node WITHOUT the triggering attribute (childList fires
+  // but the selector won't match, so no alert is triggered here).
+  await page.evaluate((id) => {
     const btn = document.createElement('button');
-    btn.id = 'attr-mutation-target';
+    btn.id = id;
     document.body.appendChild(btn);
-  });
-  // Set the triggering attribute as a separate operation.
-  await page.evaluate(() => {
-    document.getElementById('attr-mutation-target').setAttribute('aria-label', 'Approve');
-  });
+  }, nodeId);
+  // Step 2: set the triggering attribute — this is the attribute mutation
+  // that the observer is watching for.
+  await page.evaluate((id) => {
+    document.getElementById(id).setAttribute('aria-label', 'Approve');
+  }, nodeId);
 }
 
 /**
  * Arm the observer once then fire both DOM mutation paths sequentially.
- * After each fire, assert via `assertFn` and reset `alertingTabId` between.
+ * Calls assertFn with the mutation type string after each fire, then
+ * resets alertingTabId so the next sub-check starts clean.
  *
  * @param {object}   page
- * @param {Function} assertFn  Called after each mutation with the storage snapshot.
+ * @param {Function} assertFn        Called with ('childList'|'attr').
  * @param {Function} getStorage
- * @param {object}   serviceWorker  Used to reset alertingTabId between sub-checks.
+ * @param {object}   serviceWorker   Resets alertingTabId between sub-checks.
  */
 async function fireBothDomPaths(page, assertFn, getStorage, serviceWorker) {
   await armDomObserver(page);
@@ -107,7 +121,7 @@ async function fireBothDomPaths(page, assertFn, getStorage, serviceWorker) {
   await assertFn('childList');
   await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
 
-  // Path 3 — attribute
+  // Path 3 — attribute (unique node ID guaranteed by attrTargetSeq)
   await fireDomTriggerAttr(page);
   await assertFn('attr');
   await serviceWorker.evaluate(() => chrome.storage.local.remove(['alertingTabId']));
