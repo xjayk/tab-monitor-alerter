@@ -69,11 +69,11 @@ A self-contained test page is provided at `tests/manual/test-notify.html`. It ex
 | # | Button | Trigger path | Expected result |
 |---|---|---|---|
 | 1 | Fire window.Notification() | `window.Notification()` proxy in `content-main.js` | Badge flashes, beep plays |
-| 2 | Inject matching node | `addedNodes` MutationObserver, `aria-label="Approve"` | Badge flashes, beep plays |
-| 3 | Mutate aria-label on existing node | Attribute mutation — **known gap** | No alert (documents missing `attributes: true` in observer) |
+| 2 | Inject matching node | `addedNodes` MutationObserver, hidden `aria-label="Approve"` target | Badge flashes, beep plays |
+| 3 | 1. Create base node; 2. Set aria-label (trigger mutation) | Attribute MutationObserver on an existing button | Badge flashes, beep plays after step 2 |
 | 4 | Change tab title | `chrome.tabs.onUpdated` in `background.js` | Badge flashes, beep plays |
 
 ### Troubleshooting
 - **Path 1 doesn't alert:** Check that Notification permission was granted (browser will prompt). Also open DevTools on the tab and verify `content-main.js` is injected (`Sources → Content scripts`).
-- **Path 2 doesn't alert:** The `SET_DOM_TRIGGERS` handshake may have been missed. Reload the tab *after* the extension is loaded, then re-enable monitoring.
+- **Path 2 or 3 doesn't alert:** The `SET_DOM_TRIGGERS` handshake may have been missed. Reload the tab *after* the extension is loaded, then re-enable monitoring. Paths 2 and 3 also require a localhost URL so the default DOM trigger map can match the page hostname.
 - **Nothing alerts at all:** Confirm the tab is checked in the popup. Open `chrome://extensions/` → inspect the extension's service worker → check the console for errors.
