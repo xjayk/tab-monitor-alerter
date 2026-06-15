@@ -32,7 +32,7 @@ A Manifest V3 Chrome Extension that provides persistent visual and audio alerts 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────┐
 │  Background Service Worker (background.js)                   │
 │  • Owns alert state, debounce, badge flashing                │
 │  • Injects content-main.js into tab MAIN world               │
@@ -41,22 +41,22 @@ A Manifest V3 Chrome Extension that provides persistent visual and audio alerts 
 └────────┬────────────┬──────────────┬─────────────────────────┘
          │            │              │
          ▼            ▼              ▼
-┌──────────────┐ ┌────────────────┐ ┌──────────────────────────┐
+┌──────────────┐ ┌────────────────┐ ┌───────────────────────────┐
 │ popup.js     │ │ options.js     │ │ content-isolated.js       │
 │ (popup UI)   │ │ (Settings)     │ │ (ISOLATED world relay)    │
 │ MonitoredTab │ │ Per-type       │ │ postMessage → chrome.runt │
-│ toggles      │ │ toggles,       │ │ CS_PING/CS_PONG handshake│
+│ toggles      │ │ toggles,       │ │ CS_PING/CS_PONG handshake │
 │ Select All   │ │ monitorAllTabs │ │ Origin validation         │
-└──────────────┘ └────────────────┘ └──────────┬───────────────┘
+└──────────────┘ └────────────────┘ └───────────┬───────────────┘
                                                 │ postMessage
                                                 ▼
-                                      ┌──────────────────┐
+                                      ┌───────────────────┐
                                       │ content-main.js   │
                                       │ (MAIN world)      │
                                       │ Notification proxy│
                                       │ MutationObserver  │
                                       │ for DOM triggers  │
-                                      └──────────────────┘
+                                      └───────────────────┘
 ```
 
 ## Build & Operation Instructions
