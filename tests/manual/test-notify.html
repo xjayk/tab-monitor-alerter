@@ -383,10 +383,12 @@
         return;
       }
 
+      const container = document.getElementById('path3-container');
+      container.innerHTML = '';
       attributeTargetNode = document.createElement('button');
       attributeTargetNode.id = `attr-mutation-target-${++attributeTargetSeq}`;
       attributeTargetNode.textContent = 'Base node (no aria-label)';
-      document.getElementById('path3-container').appendChild(attributeTargetNode);
+      container.appendChild(attributeTargetNode);
       log(`Created base node #${attributeTargetNode.id} (no aria-label yet)`);
     }
 
