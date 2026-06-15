@@ -74,14 +74,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         banner.appendChild(document.createTextNode('\u2705 Monitoring all tabs globally \u2014 '));
 
-        const settingsLink = document.createElement('a');
-        settingsLink.href = '#';
-        settingsLink.textContent = 'open Settings to change';
-        settingsLink.style.color = '#1a7f37';
-        settingsLink.addEventListener('click', (e) => {
-          e.preventDefault();
-          chrome.runtime.openOptionsPage();
-        });
+    const settingsLink = document.createElement('button');
+    settingsLink.textContent = 'open Settings to change';
+    settingsLink.style.cssText = 'color:#1a7f37;background:none;border:none;padding:0;font:inherit;cursor:pointer;text-decoration:underline;display:inline;';
+    settingsLink.addEventListener('click', () => {
+      chrome.runtime.openOptionsPage();
+    });
         banner.appendChild(settingsLink);
 
         list.appendChild(banner);
