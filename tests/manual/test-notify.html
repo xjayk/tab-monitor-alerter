@@ -32,6 +32,11 @@
     }
     .target-status.injected { background: #d4edda; color: #1a7f37; }
     .target-status.missing { background: #fff8e1; color: #9a6700; }
+    .test-indicator {
+      display: inline-block; margin: 0.25rem 0; padding: 0.25rem 0.5rem;
+      background: #eee; border-radius: 3px; font-size: 0.8rem;
+      border: none; cursor: default; pointer-events: none; user-select: none;
+    }
 
     /* Options bar */
     #options {
@@ -362,15 +367,10 @@
         log('Target already injected — remove it first', 'warn');
         return;
       }
-      injectedNode = document.createElement('span');
+      injectedNode = document.createElement('button');
       injectedNode.textContent = 'Test Target (aria-label="Approve")';
       injectedNode.setAttribute('aria-label', 'Approve');
-      injectedNode.style.display = 'inline-block';
-      injectedNode.style.padding = '0.25rem 0.5rem';
-      injectedNode.style.background = '#f5f5f5';
-      injectedNode.style.borderRadius = '3px';
-      injectedNode.style.fontSize = '0.8rem';
-      injectedNode.style.margin = '0.25rem 0';
+      injectedNode.className = 'test-indicator';
       document.getElementById('path2-container').appendChild(injectedNode);
       setPath2Status(true);
       log('Injected <button aria-label="Approve"> into DOM');
@@ -406,15 +406,10 @@
 
       const container = document.getElementById('path3-container');
       container.innerHTML = '';
-      attributeTargetNode = document.createElement('span');
+      attributeTargetNode = document.createElement('button');
       attributeTargetNode.id = `attr-mutation-target-${++attributeTargetSeq}`;
       attributeTargetNode.textContent = 'Test Target (no aria-label)';
-      attributeTargetNode.style.display = 'inline-block';
-      attributeTargetNode.style.padding = '0.25rem 0.5rem';
-      attributeTargetNode.style.background = '#f5f5f5';
-      attributeTargetNode.style.borderRadius = '3px';
-      attributeTargetNode.style.fontSize = '0.8rem';
-      attributeTargetNode.style.margin = '0.25rem 0';
+      attributeTargetNode.className = 'test-indicator';
       container.appendChild(attributeTargetNode);
       setPath3Status('base');
       log(`Created base node #${attributeTargetNode.id} (no aria-label yet)`);
