@@ -1,35 +1,63 @@
 # Tab Monitor & Alerter
 
+[![CI](https://github.com/xjayk/tab-monitor-alerter/actions/workflows/test.yml/badge.svg)](https://github.com/xjayk/tab-monitor-alerter/actions/workflows/test.yml)
+
 ## Overview
-A Manifest V3 Chrome Extension that provides persistent visual and audio alerts for user-selected browser tabs. It monitors specific tabs for title changes and native Web Notifications.
+A Manifest V3 Chrome Extension that provides persistent visual and audio alerts for user-selected browser tabs. Monitors title changes, web Notification API calls, and DOM element mutations. Configurable per alert type with optional global "monitor all" mode.
 
 ## Features
-- **Tab Selection**: Toggle monitoring for any open tab via the extension popup.
-- **Title Monitoring**: Detects `<title>` updates (e.g., unread message indicators).
-- **Notification Interception**: Proxies standard HTML5 Web Notifications in the main world.
-- **Dual Alerts**: 
-  - Flashing extension badge (red/black toggling).
-  - Audio beep via an offscreen document.
-- **Quick Navigation**: Clicking the extension icon when an alert is active immediately focuses the alerting tab.
+- **Per-Type Monitoring Toggles**: Independently enable/disable title updates, web notifications, and DOM triggers via the Settings page.
+- **Global Monitoring Mode**: Toggle "monitor all tabs" to watch every tab without per-tab selection.
+- **Tab Selection**: Toggle monitoring for individual tabs via the extension popup, including a Select All shortcut.
+- **Title Monitoring**: Detects `<title>` updates with optional regex pattern matching.
+- **Notification Interception**: Proxies standard HTML5 Web Notifications in the MAIN world.
+- **DOM Mutation Triggers**: Observes real-time DOM changes (e.g., a button with `aria-label="Approve"` appearing on Perplexity).
+- **Dual Alerts**: Flashing extension badge (red/black) + audio beep via offscreen document.
+- **Quick Navigation**: Click the flashing extension icon to focus the alerting tab and dismiss the alert.
+- **Active-Tab Suppression**: Optionally suppress alerts when the monitored tab is already in focus.
 
-## Project Files
-- `manifest.json`
-- `background.js`
-- `content-main.js`
-- `content-isolated.js`
-- `popup.html`
-- `popup.js`
-- `offscreen.html`
-- `offscreen.js`
+## Project Structure
 
-## Architecture & Technical Notes
-- **Manifest V3**: Adheres to modern extension standards.
-- **Background Service Worker (`background.js`)**: Manages state, listens to tab updates, and coordinates alerts.
-- **Content Scripts**: 
-  - `content-main.js`: Injected into the page's `MAIN` world to proxy `window.Notification`.
-  - `content-isolated.js`: Relays messages from the main world to the extension's background worker.
-- **Offscreen Document (`offscreen.html`/`js`)**: Used to play audio since Manifest V3 service workers lack DOM access. This starter uses an inline base64 beep in `offscreen.js`.
-- **Popup Logic**: The popup acts as both the tab monitor UI and the alert click handler.
+| File | Purpose |
+|---|---|
+| `background.js` | Service worker: event listeners, alert logic, content script injection |
+| `content-main.js` | Injected into MAIN world: Notification proxy + DOM MutationObserver |
+| `content-isolated.js` | Injected into ISOLATED world: relays messages to background |
+| `popup.html` / `popup.js` | Extension popup: tab list, monitoring toggles, select-all |
+| `options.html` / `options.js` | Settings page: per-type toggles, monitor-all, active-tab suppression |
+| `offscreen.html` / `offscreen.js` | Offscreen document for audio playback (MV3 requirement) |
+| `src/utils.js` | Pure utility functions: debounce, pattern matching, migration, normalization |
+| `manifest.json` | Extension manifest (MV3, permissions, content scripts) |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Background Service Worker (background.js)                   │
+│  • Owns alert state, debounce, badge flashing                │
+│  • Injects content-main.js into tab MAIN world               │
+│  • Listens: chrome.tabs.onUpdated, onActivated, onRemoved    │
+│  • Answers GET_DOM_TRIGGERS from content scripts             │
+└────────┬────────────┬──────────────┬─────────────────────────┘
+         │            │              │
+         ▼            ▼              ▼
+┌──────────────┐ ┌────────────────┐ ┌──────────────────────────┐
+│ popup.js     │ │ options.js     │ │ content-isolated.js       │
+│ (popup UI)   │ │ (Settings)     │ │ (ISOLATED world relay)    │
+│ MonitoredTab │ │ Per-type       │ │ postMessage → chrome.runt │
+│ toggles      │ │ toggles,       │ │ CS_PING/CS_PONG handshake│
+│ Select All   │ │ monitorAllTabs │ │ Origin validation         │
+└──────────────┘ └────────────────┘ └──────────┬───────────────┘
+                                                │ postMessage
+                                                ▼
+                                      ┌──────────────────┐
+                                      │ content-main.js   │
+                                      │ (MAIN world)      │
+                                      │ Notification proxy│
+                                      │ MutationObserver  │
+                                      │ for DOM triggers  │
+                                      └──────────────────┘
+```
 
 ## Build & Operation Instructions
 ### Installation (Development Mode)
@@ -70,10 +98,10 @@ A self-contained test page is provided at `tests/manual/test-notify.html`. It ex
 |---|---|---|---|
 | 1 | Fire window.Notification() | `window.Notification()` proxy in `content-main.js` | Badge flashes, beep plays |
 | 2 | Inject matching node | `addedNodes` MutationObserver, `aria-label="Approve"` | Badge flashes, beep plays |
-| 3 | Mutate aria-label on existing node | Attribute mutation — **known gap** | No alert (documents missing `attributes: true` in observer) |
+| 3 | 1. Create base node; 2. Set aria-label on existing node | Attribute MutationObserver on an existing button | Badge flashes, beep plays after step 2 |
 | 4 | Change tab title | `chrome.tabs.onUpdated` in `background.js` | Badge flashes, beep plays |
 
 ### Troubleshooting
 - **Path 1 doesn't alert:** Check that Notification permission was granted (browser will prompt). Also open DevTools on the tab and verify `content-main.js` is injected (`Sources → Content scripts`).
-- **Path 2 doesn't alert:** The `SET_DOM_TRIGGERS` handshake may have been missed. Reload the tab *after* the extension is loaded, then re-enable monitoring.
-- **Nothing alerts at all:** Confirm the tab is checked in the popup. Open `chrome://extensions/` → inspect the extension's service worker → check the console for errors.
+- **Path 2 or 3 doesn't alert:** The `SET_DOM_TRIGGERS` handshake may have been missed. Reload the tab *after* the extension is loaded, then re-enable monitoring. Paths 2 and 3 also require a localhost URL so the default DOM trigger map can match the page hostname.
+- **Nothing alerts at all:** Confirm the tab is checked in the popup. Check the per-type monitoring toggles in Settings (`chrome.runtime.openOptionsPage()`). Open `chrome://extensions/` → inspect the extension's service worker → check the console for errors.

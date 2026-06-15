@@ -120,5 +120,5 @@ export function migrateMonitoredTabs(stored) {
     });
     return migrated;
   }
-  return stored;
+  return { ...stored };
 }
