@@ -26,12 +26,12 @@
     .warn { color: #9a6700; }
     .target-container { margin-top: 0.75rem; }
     .target-status {
-      display: inline-block; margin-top: 0.75rem; padding: 0.35rem 0.6rem;
-      border: 1px solid #ddd; border-radius: 4px; background: #fafafa;
-      font-size: 0.85rem;
+      display: inline-block; margin-left: 0.5rem; padding: 0.15rem 0.5rem;
+      border-radius: 3px; font-size: 0.8rem; font-weight: 500;
+      vertical-align: middle;
     }
-    .target-status.injected { border-color: #a8d5b5; background: #d4edda; color: #1a7f37; }
-    .target-status.missing { border-color: #f0d080; background: #fff8e1; color: #9a6700; }
+    .target-status.injected { background: #d4edda; color: #1a7f37; }
+    .target-status.missing { background: #fff8e1; color: #9a6700; }
 
     /* Options bar */
     #options {
@@ -136,29 +136,33 @@
 
   <!-- Path 2 -->
   <section>
-    <h2>Path 2 — DOM mutation: new node (childList)</h2>
-    <p>Appends a hidden <code>&lt;button aria-label="Approve"&gt;</code> target in one
-    step, matching the childList path used by the integration tests. The
-    visible status below tells you whether the target is currently present.<br>
-    <strong>Expected:</strong> alert fires when the target is injected.<br>
+    <h2>Path 2 — DOM mutation: childList (new node added)</h2>
+    <p>Injects a new <code>&lt;button aria-label="Approve"&gt;</code> into the DOM.
+    The MutationObserver fires on the <code>addedNodes</code> event.<br>
+    <strong>Expected:</strong> alert fires as soon as the node appears.<br>
     <em>Requires localhost — see setup note above.</em></p>
-    <button onclick="run(injectMatchingNode)">Inject matching node</button>
-    <button onclick="removeInjected()">Remove injected node</button>
+    <div>
+      <button onclick="run(injectMatchingNode)">Inject matching node</button>
+      <button onclick="removeInjected()">Remove injected node</button>
+      <span id="path2-status" class="target-status missing" aria-live="polite">Target not injected</span>
+    </div>
     <div id="path2-container" class="target-container"></div>
-    <div id="path2-status" class="target-status missing" aria-live="polite">Target not injected</div>
   </section>
 
   <!-- Path 3 -->
   <section>
-    <h2>Path 3 — DOM mutation: attribute change</h2>
-    <p>Use two explicit steps that mirror <code>fireDomTriggerAttr</code>: first append
-    a plain button with no <code>aria-label</code>, then set
-    <code>aria-label="Approve"</code> on that existing node to trigger the
-    attribute observer.<br>
+    <h2>Path 3 — DOM mutation: attribute change (aria-label)</h2>
+    <p>Two-step flow: first create a plain <code>&lt;button&gt;</code> (no alert),
+    then set <code>aria-label="Approve"</code> on it. The MutationObserver fires
+    on the <code>attributes</code> change, not node addition.<br>
     <strong>Expected:</strong> no alert on step 1; alert fires on step 2.<br>
     <em>Requires localhost — see setup note above.</em></p>
-    <button onclick="run(createAttributeTarget)">1. Create base node</button>
-    <button onclick="run(setAttributeOnTarget)">2. Set aria-label (trigger mutation)</button>
+    <div>
+      <button onclick="run(createAttributeTarget)">1. Create base node</button>
+      <button onclick="run(setAttributeOnTarget)">2. Set aria-label</button>
+      <button onclick="removeAttributeTarget()">Reset</button>
+      <span id="path3-status" class="target-status missing" aria-live="polite">Base node not created</span>
+    </div>
     <div id="path3-container" class="target-container"></div>
   </section>
 
@@ -359,11 +363,12 @@
         return;
       }
       injectedNode = document.createElement('button');
-      injectedNode.hidden = true;
+      injectedNode.textContent = 'Test Target (aria-label="Approve")';
       injectedNode.setAttribute('aria-label', 'Approve');
+      injectedNode.style.margin = '0.25rem 0';
       document.getElementById('path2-container').appendChild(injectedNode);
       setPath2Status(true);
-      log('Injected hidden <button aria-label="Approve"> into DOM');
+      log('Injected <button aria-label="Approve"> into DOM');
     }
 
     function removeInjected() {
@@ -377,9 +382,20 @@
     // -----------------------------------------------------------------------
     // Path 3 — Attribute Mutation
     // -----------------------------------------------------------------------
+    function setPath3Status(state) {
+      const status = document.getElementById('path3-status');
+      const labels = {
+        missing: 'Base node not created',
+        base: 'Base node created — no aria-label yet',
+        triggered: 'Target injected (aria-label="Approve")',
+      };
+      status.className = `target-status ${state === 'triggered' ? 'injected' : 'missing'}`;
+      status.textContent = labels[state] || state;
+    }
+
     function createAttributeTarget() {
       if (attributeTargetNode && !attributeTargetNode.hasAttribute('aria-label')) {
-        log('Base node already exists — set its aria-label or reload before creating another', 'warn');
+        log('Base node already exists — set its aria-label first', 'warn');
         return;
       }
 
@@ -387,8 +403,10 @@
       container.innerHTML = '';
       attributeTargetNode = document.createElement('button');
       attributeTargetNode.id = `attr-mutation-target-${++attributeTargetSeq}`;
-      attributeTargetNode.textContent = 'Base node (no aria-label)';
+      attributeTargetNode.textContent = 'Test Target (no aria-label)';
+      attributeTargetNode.style.margin = '0.25rem 0';
       container.appendChild(attributeTargetNode);
+      setPath3Status('base');
       log(`Created base node #${attributeTargetNode.id} (no aria-label yet)`);
     }
 
@@ -403,8 +421,18 @@
       }
 
       attributeTargetNode.setAttribute('aria-label', 'Approve');
-      attributeTargetNode.textContent = 'Base node (aria-label="Approve")';
+      attributeTargetNode.textContent = 'Test Target (aria-label="Approve")';
+      setPath3Status('triggered');
       log(`Set aria-label="Approve" on #${attributeTargetNode.id}`);
+    }
+
+    function removeAttributeTarget() {
+      const container = document.getElementById('path3-container');
+      container.innerHTML = '';
+      attributeTargetNode = null;
+      attributeTargetSeq = 0;
+      setPath3Status('missing');
+      log('Path 3 target reset');
     }
 
     // -----------------------------------------------------------------------
