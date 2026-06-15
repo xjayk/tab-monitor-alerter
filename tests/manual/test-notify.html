@@ -362,9 +362,14 @@
         log('Target already injected — remove it first', 'warn');
         return;
       }
-      injectedNode = document.createElement('button');
+      injectedNode = document.createElement('span');
       injectedNode.textContent = 'Test Target (aria-label="Approve")';
       injectedNode.setAttribute('aria-label', 'Approve');
+      injectedNode.style.display = 'inline-block';
+      injectedNode.style.padding = '0.25rem 0.5rem';
+      injectedNode.style.background = '#f5f5f5';
+      injectedNode.style.borderRadius = '3px';
+      injectedNode.style.fontSize = '0.8rem';
       injectedNode.style.margin = '0.25rem 0';
       document.getElementById('path2-container').appendChild(injectedNode);
       setPath2Status(true);
@@ -401,9 +406,14 @@
 
       const container = document.getElementById('path3-container');
       container.innerHTML = '';
-      attributeTargetNode = document.createElement('button');
+      attributeTargetNode = document.createElement('span');
       attributeTargetNode.id = `attr-mutation-target-${++attributeTargetSeq}`;
       attributeTargetNode.textContent = 'Test Target (no aria-label)';
+      attributeTargetNode.style.display = 'inline-block';
+      attributeTargetNode.style.padding = '0.25rem 0.5rem';
+      attributeTargetNode.style.background = '#f5f5f5';
+      attributeTargetNode.style.borderRadius = '3px';
+      attributeTargetNode.style.fontSize = '0.8rem';
       attributeTargetNode.style.margin = '0.25rem 0';
       container.appendChild(attributeTargetNode);
       setPath3Status('base');
