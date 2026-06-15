@@ -1,4 +1,5 @@
 # Tab Monitor & Alerter
+Born from the sheer frustration of Perplexity's permission timeouts. You tab away for a split second, the request expires, and the work done in that turn is unrecoverable. No (working) retry, just the joy of having to re-trigger your prompt. This watchdog catches the permission request every single time, eliminating the inefficiency and keeping your workflow moving.
 
 [![CI](https://github.com/xjayk/tab-monitor-alerter/actions/workflows/test.yml/badge.svg)](https://github.com/xjayk/tab-monitor-alerter/actions/workflows/test.yml)
 
